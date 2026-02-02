@@ -348,3 +348,178 @@ contract HellyHook is BaseHook {
 │  └─────────────────────┘  └─────────────────────┘              │
 │                                                                 │
 │  AMOUNT                                                         │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  $ [100___________]  USDC                               │   │
+│  │  Balance: $1,450.00                                     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ⚡ This bet is GASLESS (Yellow state channel)                 │
+│                                                                 │
+│  [PLACE BET - NO CAP FR FR]                                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Web App (React/Next.js)                                        │
+│  ├── Market browsing                                           │
+│  ├── Betting interface                                         │
+│  ├── Commitment generation (client-side)                       │
+│  └── LI.FI deposit widget                                      │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Backend Server                                                 │
+│  ├── Market management                                         │
+│  ├── State channel coordination (Yellow SDK)                   │
+│  ├── Commitment storage                                        │
+│  ├── Oracle integration (Chainlink/Pyth)                      │
+│  └── Settlement trigger                                        │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+          ┌─────────────────┼─────────────────┐
+          ▼                 ▼                 ▼
+    ┌──────────┐      ┌──────────┐      ┌──────────┐
+    │  Yellow  │      │ Uniswap  │      │  LI.FI   │
+    │ Network  │      │   v4     │      │          │
+    │          │      │          │      │ (cross-  │
+    │ • State  │      │ • Helly  │      │  chain   │
+    │   channels│     │   Hook   │      │  deposits│
+    │ • Gasless│      │ • Atomic │      │          │
+    │   bets   │      │   settle │      │          │
+    └──────────┘      └──────────┘      └──────────┘
+          │                 │                 │
+          └─────────────────┼─────────────────┘
+                            │
+                            ▼
+                    ┌──────────────┐
+                    │  Base Chain  │
+                    │  (or Arb)    │
+                    └──────────────┘
+```
+
+---
+
+## Database Schema
+
+```sql
+-- Users (Skibidis)
+skibidis:
+  id                TEXT PRIMARY KEY
+  wallet_address    ADDRESS
+  username          TEXT
+  aura              INTEGER DEFAULT 0
+  wins              INTEGER DEFAULT 0
+  losses            INTEGER DEFAULT 0
+  squad_id          TEXT REFERENCES squads
+  created_at        TIMESTAMP
+
+-- Squads
+squads:
+  id                TEXT PRIMARY KEY
+  name              TEXT
+  leader_id         TEXT REFERENCES skibidis
+  total_aura        INTEGER DEFAULT 0
+  created_at        TIMESTAMP
+
+-- Markets
+markets:
+  id                TEXT PRIMARY KEY
+  question          TEXT
+  deadline          TIMESTAMP
+  oracle_source     TEXT
+  target_value      DECIMAL
+  status            ENUM (open, closed, resolved)
+  outcome           BOOLEAN (null until resolved)
+  is_cap            BOOLEAN DEFAULT true  -- private by default
+  yes_pool          DECIMAL DEFAULT 0
+  no_pool           DECIMAL DEFAULT 0
+  created_at        TIMESTAMP
+
+-- Bets
+bets:
+  id                TEXT PRIMARY KEY
+  market_id         TEXT REFERENCES markets
+  skibidi_id        TEXT REFERENCES skibidis
+  commitment_hash   TEXT
+  amount            DECIMAL
+  direction         TEXT (null until revealed in cap mode)
+  secret            TEXT (null until revealed)
+  revealed          BOOLEAN DEFAULT false
+  payout            DECIMAL
+  channel_state     TEXT  -- Yellow state channel reference
+  created_at        TIMESTAMP
+
+-- Deposits
+deposits:
+  id                TEXT PRIMARY KEY
+  skibidi_id        TEXT REFERENCES skibidis
+  source_chain      TEXT
+  source_token      TEXT
+  source_amount     DECIMAL
+  dest_amount       DECIMAL
+  lifi_tx_hash      TEXT
+  status            ENUM (pending, completed, failed)
+  created_at        TIMESTAMP
+```
+
+---
+
+## Prize Track Alignment
+
+| Prize | How We Qualify |
+|-------|----------------|
+| **Yellow Network** ($15k) | State channels for gasless betting - core infrastructure |
+| **Uniswap v4** ($10k) | Custom settlement hook for atomic payouts |
+| **LI.FI** ($6k) | Cross-chain deposits from any chain |
+
+**Total potential: $31k**
+
+---
+
+## Hackathon Scope
+
+### Must Have
+- [ ] Web app with market browsing
+- [ ] Yellow state channel integration (gasless bets)
+- [ ] Commitment-reveal flow for private (cap) markets
+- [ ] LI.FI cross-chain deposit flow
+- [ ] Basic Uniswap v4 hook for settlement
+- [ ] Oracle integration (Chainlink or Pyth)
+- [ ] User profile with aura/stats
+
+### Nice to Have
+- [ ] Squad system
+- [ ] Sigma battles (1v1)
+- [ ] Market creation by users
+- [ ] Leaderboards
+- [ ] Mobile-responsive design
+- [ ] Sound effects (skibidi toilet audio on win)
+
+---
+
+## UI Design Notes
+
+**Brainrot theme BUT clean execution:**
+
+- Modern, minimal layout (not actually chaotic)
+- Dark mode default (#0a0a0a background)
+- Accent colors: Electric blue (#00D4FF) + Hot pink (#FF006E)
+- Typography: Clean sans-serif (Inter/Geist)
+- Brainrot terminology in UI copy, not in visual design
+- Smooth animations, glass morphism cards
+- The memes are in the words, not the aesthetics
+
+**Think:** Discord meets Polymarket, but the copy is unhinged.
+
+---
+
+## The Pitch
+
+> "Prediction markets are cooked. Public odds get gamed. Gas fees are not sigma. We built WTHELLY — private betting with hidden positions, gasless bets via Yellow state channels, and atomic settlement through Uniswap v4. Deposit from any chain with LI.FI. Your bet stays hidden until resolution. Maximum aura. No cap fr fr."
