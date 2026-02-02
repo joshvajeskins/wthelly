@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.*
+
+# AI tooling
+.claude/
+.agents/
+.mcp.json
+
+# Dependencies
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# Build
+.next/
+out/
+build/
+
+# Foundry
+contracts/lib/
+contracts/cache/
+contracts/out/
+
+# Project specific
+scripts/lib/deployment.json
+nitrolite/
+
+# Misc
+.DS_Store
+*.pem
+.vscode/
+.idea/
