@@ -1,0 +1,33 @@
+{
+  "name": "wthelly",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "tsx scripts/0-setup.ts",
+    "create-market": "tsx scripts/1-create-market.ts",
+    "user-deposit": "tsx scripts/2-user-deposit.ts",
+    "place-bet": "tsx scripts/3-place-bet.ts",
+    "resolve-market": "tsx scripts/4-resolve-market.ts",
+    "reveal-bets": "tsx scripts/5-reveal-bets.ts",
+    "settle-market": "tsx scripts/6-settle-market.ts",
+    "full-flow": "tsx scripts/7-full-flow.ts",
+    "testnet": "tsx scripts/8-testnet-flow.ts",
+    "contracts:build": "cd contracts && forge build",
+    "contracts:test": "cd contracts && forge test -vv"
+  },
+  "dependencies": {
+    "@erc7824/nitrolite": "^0.5.3",
+    "dotenv": "^17.2.4",
+    "pg": "^8.13.0",
+    "viem": "^2.45.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
