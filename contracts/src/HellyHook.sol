@@ -1,0 +1,442 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title HellyHook
+/// @notice Prediction market contract with commit-reveal pattern for private betting
+/// @dev Adapted from PrivateSwapHook's commit-reveal pattern for prediction market use case
+contract HellyHook {
+    using SafeERC20 for IERC20;
+
+    // =============================================================
+    //                           ERRORS
+    // =============================================================
+
+    error OnlyAdmin();
+    error MarketAlreadyExists();
+    error MarketDoesNotExist();
+    error MarketNotOpen();
+    error MarketNotResolved();
+    error MarketAlreadyResolved();
+    error MarketAlreadySettled();
+    error MarketNotClosed();
+    error BettingClosed();
+    error RevealWindowClosed();
+    error RevealWindowNotOpen();
+    error InsufficientBalance();
+    error AlreadyCommitted();
+    error CommitmentDoesNotExist();
+    error AlreadyRevealed();
+    error InvalidCommitmentHash();
+    error ZeroAmount();
+    error NothingToSettle();
+
+    // =============================================================
+    //                           EVENTS
+    // =============================================================
+
+    event MarketCreated(
+        bytes32 indexed marketId,
+        string question,
+        uint256 deadline,
+        uint256 revealDeadline
+    );
+
+    event MarketResolved(
+        bytes32 indexed marketId,
+        bool outcome
+    );
+
+    event MarketSettled(
+        bytes32 indexed marketId,
+        uint256 totalPayout,
+        uint256 platformFee,
+        uint256 winners,
+        uint256 losers
+    );
+
+    event Deposited(address indexed user, uint256 amount);
+    event Withdrawn(address indexed user, uint256 amount);
+
+    event CommitmentSubmitted(
+        bytes32 indexed marketId,
+        address indexed bettor,
+        bytes32 commitHash,
+        uint256 amount
+    );
+
+    event BetRevealed(
+        bytes32 indexed marketId,
+        address indexed bettor,
+        bool isYes,
+        uint256 amount
+    );
+
+    event PayoutClaimed(
+        bytes32 indexed marketId,
+        address indexed bettor,
+        uint256 amount
+    );
+
+    // =============================================================
+    //                           STRUCTS
+    // =============================================================
+
+    struct Market {
+        string question;
+        uint256 deadline;
+        uint256 revealDeadline;
+        bool resolved;
+        bool outcome;
+        uint256 totalYes;
+        uint256 totalNo;
+        bool settled;
+        uint256 commitCount;
+    }
+
+    struct Commitment {
+        bytes32 commitHash;
+        uint256 amount;
+        address bettor;
+        bool revealed;
+        bool isYes;
+    }
+
+    // =============================================================
+    //                       STATE VARIABLES
+    // =============================================================
+
+    address public admin;
+    IERC20 public usdc;
+    uint256 public platformFeeBps; // 200 = 2%
+
+    /// @notice User balances deposited into the contract
+    mapping(address => uint256) public balances;
+
+    /// @notice All markets by their ID
+    mapping(bytes32 => Market) public markets;
+
+    /// @notice Commitments per market: marketId => index => Commitment
+    mapping(bytes32 => mapping(uint256 => Commitment)) public commitments;
+
+    /// @notice Track bettor's commit index (1-indexed, 0 means no commitment)
+    mapping(bytes32 => mapping(address => uint256)) public bettorCommitIndex;
+
+    /// @notice Track which markets exist
+    mapping(bytes32 => bool) public marketExists;
+
+    // =============================================================
+    //                         CONSTRUCTOR
+    // =============================================================
+
+    constructor(address _usdc, uint256 _platformFeeBps) {
+        admin = msg.sender;
+        usdc = IERC20(_usdc);
+        platformFeeBps = _platformFeeBps;
+    }
+
+    // =============================================================
+    //                         MODIFIERS
+    // =============================================================
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert OnlyAdmin();
+        _;
+    }
+
+    // =============================================================
+    //                     ADMIN FUNCTIONS
+    // =============================================================
+
+    /// @notice Create a new prediction market
+    /// @param marketId Unique identifier for the market
+    /// @param question The prediction question
+    /// @param deadline Timestamp when betting closes
+    /// @param revealWindow Duration in seconds for the reveal window after resolution
+    function createMarket(
+        bytes32 marketId,
+        string calldata question,
+        uint256 deadline,
+        uint256 revealWindow
+    ) external onlyAdmin {
+        if (marketExists[marketId]) revert MarketAlreadyExists();
+
+        markets[marketId] = Market({
+            question: question,
+            deadline: deadline,
+            revealDeadline: deadline + revealWindow,
+            resolved: false,
+            outcome: false,
+            totalYes: 0,
+            totalNo: 0,
+            settled: false,
+            commitCount: 0
+        });
+
+        marketExists[marketId] = true;
+
+        emit MarketCreated(marketId, question, deadline, deadline + revealWindow);
+    }
+
+    /// @notice Resolve a market with the outcome
+    /// @param marketId The market to resolve
+    /// @param outcome true = YES won, false = NO won
+    function resolveMarket(bytes32 marketId, bool outcome) external onlyAdmin {
+        if (!marketExists[marketId]) revert MarketDoesNotExist();
+        Market storage market = markets[marketId];
+        if (market.resolved) revert MarketAlreadyResolved();
+
+        market.resolved = true;
+        market.outcome = outcome;
+
+        emit MarketResolved(marketId, outcome);
+    }
+
+    // =============================================================
+    //                     USER FUNCTIONS
+    // =============================================================
+
+    /// @notice Deposit USDC into the contract for betting
+    /// @param amount Amount of USDC to deposit (in token units)
+    function deposit(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        usdc.safeTransferFrom(msg.sender, address(this), amount);
+        balances[msg.sender] += amount;
+        emit Deposited(msg.sender, amount);
+    }
+
+    /// @notice Withdraw USDC from the contract
+    /// @param amount Amount of USDC to withdraw
+    function withdraw(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        if (balances[msg.sender] < amount) revert InsufficientBalance();
+        balances[msg.sender] -= amount;
+        usdc.safeTransfer(msg.sender, amount);
+        emit Withdrawn(msg.sender, amount);
+    }
+
+    /// @notice Submit a commitment to bet on a market
+    /// @param marketId The market to bet on
+    /// @param commitHash keccak256(abi.encode(marketId, isYes, amount, secret, user))
+    /// @param amount Amount to bet (locked from balance)
+    function submitCommitment(
+        bytes32 marketId,
+        bytes32 commitHash,
+        uint256 amount
+    ) external {
+        if (!marketExists[marketId]) revert MarketDoesNotExist();
+        Market storage market = markets[marketId];
+        if (block.timestamp > market.deadline) revert BettingClosed();
+        if (market.resolved) revert MarketAlreadyResolved();
+        if (amount == 0) revert ZeroAmount();
+        if (balances[msg.sender] < amount) revert InsufficientBalance();
+        if (bettorCommitIndex[marketId][msg.sender] != 0) revert AlreadyCommitted();
+
+        // Lock funds
+        balances[msg.sender] -= amount;
+
+        // Store commitment (1-indexed)
+        market.commitCount++;
+        uint256 index = market.commitCount;
+
+        commitments[marketId][index] = Commitment({
+            commitHash: commitHash,
+            amount: amount,
+            bettor: msg.sender,
+            revealed: false,
+            isYes: false
+        });
+
+        bettorCommitIndex[marketId][msg.sender] = index;
+
+        emit CommitmentSubmitted(marketId, msg.sender, commitHash, amount);
+    }
+
+    /// @notice Reveal a bet after market resolution
+    /// @param marketId The market
+    /// @param isYes The direction of the bet
+    /// @param secret The secret used in the commitment
+    function revealBet(
+        bytes32 marketId,
+        bool isYes,
+        bytes32 secret
+    ) external {
+        if (!marketExists[marketId]) revert MarketDoesNotExist();
+        Market storage market = markets[marketId];
+        if (!market.resolved) revert MarketNotResolved();
+        if (block.timestamp > market.revealDeadline) revert RevealWindowClosed();
+
+        uint256 index = bettorCommitIndex[marketId][msg.sender];
+        if (index == 0) revert CommitmentDoesNotExist();
+
+        Commitment storage commitment = commitments[marketId][index];
+        if (commitment.revealed) revert AlreadyRevealed();
+
+        // Verify the commitment hash
+        bytes32 computedHash = getCommitmentHash(
+            marketId,
+            isYes,
+            commitment.amount,
+            secret,
+            msg.sender
+        );
+
+        if (computedHash != commitment.commitHash) revert InvalidCommitmentHash();
+
+        // Mark as revealed
+        commitment.revealed = true;
+        commitment.isYes = isYes;
+
+        // Update market pools
+        if (isYes) {
+            market.totalYes += commitment.amount;
+        } else {
+            market.totalNo += commitment.amount;
+        }
+
+        emit BetRevealed(marketId, msg.sender, isYes, commitment.amount);
+    }
+
+    // =============================================================
+    //                     SETTLEMENT
+    // =============================================================
+
+    /// @notice Settle a market and distribute payouts
+    /// @param marketId The market to settle
+    function settleMarket(bytes32 marketId) external onlyAdmin {
+        if (!marketExists[marketId]) revert MarketDoesNotExist();
+        Market storage market = markets[marketId];
+        if (!market.resolved) revert MarketNotResolved();
+        if (market.settled) revert MarketAlreadySettled();
+        if (market.commitCount == 0) revert NothingToSettle();
+
+        market.settled = true;
+
+        uint256 winnerPool = market.outcome ? market.totalYes : market.totalNo;
+        uint256 loserPool = market.outcome ? market.totalNo : market.totalYes;
+
+        // Include unrevealed bets in the loser pool (forfeited)
+        uint256 unrevealedTotal = 0;
+        uint256 winnerCount = 0;
+        uint256 loserCount = 0;
+
+        for (uint256 i = 1; i <= market.commitCount; i++) {
+            Commitment storage c = commitments[marketId][i];
+            if (!c.revealed) {
+                // Unrevealed bets are forfeited
+                unrevealedTotal += c.amount;
+            } else if (c.isYes == market.outcome) {
+                winnerCount++;
+            } else {
+                loserCount++;
+            }
+        }
+
+        // Total pool available for distribution = loser pool + unrevealed (forfeited)
+        uint256 distributablePool = loserPool + unrevealedTotal;
+
+        // Calculate platform fee
+        uint256 fee = (distributablePool * platformFeeBps) / 10000;
+        uint256 netDistributable = distributablePool - fee;
+
+        // Credit platform fee to admin
+        if (fee > 0) {
+            balances[admin] += fee;
+        }
+
+        // Distribute to winners proportionally
+        if (winnerPool > 0 && netDistributable > 0) {
+            for (uint256 i = 1; i <= market.commitCount; i++) {
+                Commitment storage c = commitments[marketId][i];
+                if (c.revealed && c.isYes == market.outcome) {
+                    // Winner gets their original bet back + proportional share of distributable pool
+                    uint256 share = (c.amount * netDistributable) / winnerPool;
+                    balances[c.bettor] += c.amount + share;
+
+                    emit PayoutClaimed(marketId, c.bettor, c.amount + share);
+                }
+            }
+        } else if (winnerPool > 0) {
+            // No losers, return original bets to winners
+            for (uint256 i = 1; i <= market.commitCount; i++) {
+                Commitment storage c = commitments[marketId][i];
+                if (c.revealed && c.isYes == market.outcome) {
+                    balances[c.bettor] += c.amount;
+                    emit PayoutClaimed(marketId, c.bettor, c.amount);
+                }
+            }
+        }
+        // If winnerPool == 0, all funds go to platform (edge case)
+        if (winnerPool == 0) {
+            balances[admin] += netDistributable;
+        }
+
+        emit MarketSettled(
+            marketId,
+            winnerPool > 0 ? winnerPool + netDistributable : 0,
+            fee,
+            winnerCount,
+            loserCount
+        );
+    }
+
+    // =============================================================
+    //                       VIEW FUNCTIONS
+    // =============================================================
+
+    /// @notice Compute the commitment hash for given parameters
+    function getCommitmentHash(
+        bytes32 marketId,
+        bool isYes,
+        uint256 amount,
+        bytes32 secret,
+        address user
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(marketId, isYes, amount, secret, user));
+    }
+
+    /// @notice Get market details
+    function getMarket(bytes32 marketId) external view returns (
+        string memory question,
+        uint256 deadline,
+        uint256 revealDeadline,
+        bool resolved,
+        bool outcome,
+        uint256 totalYes,
+        uint256 totalNo,
+        bool settled,
+        uint256 commitCount
+    ) {
+        Market storage m = markets[marketId];
+        return (
+            m.question,
+            m.deadline,
+            m.revealDeadline,
+            m.resolved,
+            m.outcome,
+            m.totalYes,
+            m.totalNo,
+            m.settled,
+            m.commitCount
+        );
+    }
+
+    /// @notice Get a commitment by market and index
+    function getCommitment(bytes32 marketId, uint256 index) external view returns (
+        bytes32 commitHash,
+        uint256 amount,
+        address bettor,
+        bool revealed,
+        bool isYes
+    ) {
+        Commitment storage c = commitments[marketId][index];
+        return (c.commitHash, c.amount, c.bettor, c.revealed, c.isYes);
+    }
+
+    /// @notice Get a bettor's commit index for a market (0 = no commitment)
+    function getBettorCommitIndex(bytes32 marketId, address bettor) external view returns (uint256) {
+        return bettorCommitIndex[marketId][bettor];
+    }
+}
