@@ -1,0 +1,368 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================
+   WTHELLY - BRAINROT DESIGN SYSTEM
+   no cap fr fr
+   ============================================ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* BRAINROT COLORS - solid, no gradients */
+  --color-lime: var(--lime);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  /* Fonts */
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+  --font-display: var(--font-space-grotesk);
+
+  /* Radius - more angular for brainrot */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+}
+
+/* ============================================
+   COLOR TOKENS - BRAINROT DARK THEME
+   ============================================ */
+
+:root {
+  --radius: 8px;
+
+  /* THE COLOR - lime green, thats it */
+  --lime: #BFFF00;
+  --success: #22C55E;
+  --warning: #F59E0B;
+
+  /* Font families */
+  --font-inter: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-jetbrains: "JetBrains Mono", "Fira Code", monospace;
+  --font-space-grotesk: "Space Grotesk", "Inter", sans-serif;
+}
+
+.dark,
+:root {
+  color-scheme: dark;
+
+  /* Base - pure black */
+  --background: #000000;
+  --foreground: #ffffff;
+
+  /* Cards - slightly lighter */
+  --card: #0a0a0a;
+  --card-foreground: #ffffff;
+
+  /* Popover */
+  --popover: #0a0a0a;
+  --popover-foreground: #ffffff;
+
+  /* Primary - LIME */
+  --primary: #BFFF00;
+  --primary-foreground: #000000;
+
+  /* Secondary */
+  --secondary: #111111;
+  --secondary-foreground: #ffffff;
+
+  /* Muted */
+  --muted: #1a1a1a;
+  --muted-foreground: #888888;
+
+  /* Accent - LIME */
+  --accent: #BFFF00;
+  --accent-foreground: #000000;
+
+  /* Destructive */
+  --destructive: #ff0000;
+
+  /* Borders - subtle */
+  --border: #222222;
+  --input: #222222;
+  --ring: #BFFF00;
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-inter);
+  }
+
+  ::selection {
+    background: #BFFF00;
+    color: #000000;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #BFFF00;
+    border-radius: 0;
+  }
+}
+
+/* ============================================
+   BRAINROT TYPOGRAPHY
+   ============================================ */
+
+@layer utilities {
+  .text-display-lg {
+    font-family: var(--font-space-grotesk);
+    @apply text-5xl md:text-6xl lg:text-7xl font-black lowercase tracking-tighter;
+  }
+
+  .text-display {
+    font-family: var(--font-space-grotesk);
+    @apply text-4xl md:text-5xl font-black lowercase tracking-tighter;
+  }
+
+  .text-heading-lg {
+    font-family: var(--font-space-grotesk);
+    @apply text-2xl md:text-3xl font-bold lowercase tracking-tight;
+  }
+
+  .text-heading {
+    font-family: var(--font-space-grotesk);
+    @apply text-xl md:text-2xl font-bold lowercase tracking-tight;
+  }
+
+  .text-mono {
+    font-family: var(--font-jetbrains);
+    @apply tabular-nums;
+  }
+
+  /* brainrot text - just lime, no gradient */
+  .text-brainrot {
+    color: #BFFF00;
+  }
+}
+
+/* ============================================
+   BRAINROT EFFECTS
+   ============================================ */
+
+@layer utilities {
+  /* solid lime glow */
+  .glow {
+    box-shadow: 0 0 20px #BFFF00;
+  }
+
+  .glow-lg {
+    box-shadow: 0 0 40px #BFFF00;
+  }
+
+  .glow-sm {
+    box-shadow: 0 0 10px #BFFF00;
+  }
+
+  /* border glow */
+  .border-glow {
+    border: 2px solid #BFFF00;
+    box-shadow: 0 0 10px #BFFF00, inset 0 0 10px rgba(191, 255, 0, 0.1);
+  }
+
+  /* skew for that chaotic energy */
+  .skew-brainrot {
+    transform: skewX(-2deg);
+  }
+
+  .skew-brainrot-reverse {
+    transform: skewX(2deg);
+  }
+}
+
+/* ============================================
+   ANIMATIONS - BRAINROT STYLE
+   ============================================ */
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out forwards;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out forwards;
+  }
+
+  .animate-pulse-glow {
+    animation: pulseGlow 1.5s ease-in-out infinite;
+  }
+
+  .animate-shake {
+    animation: shake 0.5s ease-in-out;
+  }
+
+  .animate-glitch {
+    animation: glitch 0.3s ease-in-out infinite;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 20px #BFFF00; }
+  50% { box-shadow: 0 0 40px #BFFF00; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+@keyframes glitch {
+  0%, 100% { transform: translate(0); }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(2px, -2px); }
+  60% { transform: translate(-2px, -2px); }
+  80% { transform: translate(2px, 2px); }
+}
+
+/* ============================================
+   BRAINROT COMPONENTS
+   ============================================ */
+
+@layer components {
+  /* card with lime border on hover */
+  .card-hover {
+    @apply transition-all duration-200;
+  }
+
+  .card-hover:hover {
+    border-color: #BFFF00;
+    box-shadow: 0 0 20px rgba(191, 255, 0, 0.2);
+  }
+
+  /* brainrot button */
+  .btn-brainrot {
+    background: #BFFF00;
+    color: #000000;
+    @apply font-bold lowercase tracking-wider;
+    @apply hover:bg-white transition-colors;
+  }
+
+  /* status badges - all solid colors */
+  .badge-cap {
+    background: #BFFF00;
+    color: #000000;
+    @apply font-bold lowercase text-xs;
+  }
+
+  .badge-no-cap {
+    background: transparent;
+    border: 2px solid #BFFF00;
+    color: #BFFF00;
+    @apply font-bold lowercase text-xs;
+  }
+
+  .badge-win {
+    background: #22C55E;
+    color: #000000;
+    @apply font-bold lowercase text-xs;
+  }
+
+  .badge-loss {
+    background: #ff0000;
+    color: #ffffff;
+    @apply font-bold lowercase text-xs;
+  }
+
+  .badge-pending {
+    background: #333333;
+    color: #ffffff;
+    @apply font-bold lowercase text-xs;
+  }
+
+  /* input with lime focus */
+  .input-brainrot:focus {
+    outline: none;
+    border-color: #BFFF00;
+    box-shadow: 0 0 10px rgba(191, 255, 0, 0.3);
+  }
+
+  /* skeleton */
+  .skeleton {
+    @apply bg-muted animate-pulse;
+  }
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR
+   ============================================ */
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #BFFF00 transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #BFFF00;
+  border-radius: 0;
+}
+
+/* ============================================
+   CONTAINER
+   ============================================ */
+
+@layer utilities {
+  .container-app {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+}
