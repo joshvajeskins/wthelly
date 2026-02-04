@@ -535,3 +535,4 @@ enum HellyError {
 - Secret backup/restore option
 - Manual reveal if auto-reveal fails
 - Channel dispute resolution via Yellow
+
