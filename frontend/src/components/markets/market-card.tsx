@@ -113,3 +113,4 @@ export function MarketCard({ market, className }: MarketCardProps) {
     </Link>
   );
 }
+
