@@ -367,3 +367,4 @@ export function getMarketTypeLabel(type: MarketType): string {
 export function generateInviteCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
+
