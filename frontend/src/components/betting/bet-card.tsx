@@ -169,3 +169,4 @@ export function BetCard({ bet, market, onCancel, onReveal }: BetCardProps) {
     </Card>
   );
 }
+
