@@ -471,3 +471,4 @@ interface Squad {
 - Full-screen modals for betting
 - Swipe gestures for market cards
 - Simplified stats display
+
