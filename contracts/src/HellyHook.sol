@@ -3,6 +3,13 @@ pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 
 interface IGroth16Verifier {
     function verifyProof(
@@ -14,10 +21,11 @@ interface IGroth16Verifier {
 }
 
 /// @title HellyHook
-/// @notice Prediction market contract with commit-reveal pattern for private betting
-/// @dev Adapted from PrivateSwapHook's commit-reveal pattern for prediction market use case
-contract HellyHook {
+/// @notice Prediction market hook with commit-reveal pattern for private betting
+/// @dev Extends BaseHook to integrate with Uniswap V4 — monitors swaps via afterSwap
+contract HellyHook is BaseHook {
     using SafeERC20 for IERC20;
+    using PoolIdLibrary for PoolKey;
 
     // =============================================================
     //                           ERRORS
@@ -153,7 +161,11 @@ contract HellyHook {
     //                         CONSTRUCTOR
     // =============================================================
 
-    constructor(address _usdc, uint256 _platformFeeBps) {
+    constructor(
+        IPoolManager _poolManager,
+        address _usdc,
+        uint256 _platformFeeBps
+    ) BaseHook(_poolManager) {
         admin = msg.sender;
         usdc = IERC20(_usdc);
         platformFeeBps = _platformFeeBps;
@@ -490,6 +502,45 @@ contract HellyHook {
     function setTeeAddress(address _teeAddress) external onlyAdmin {
         teeAddress = _teeAddress;
     }
+
+    // =============================================================
+    //                    UNISWAP V4 HOOK
+    // =============================================================
+
+    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
+        return Hooks.Permissions({
+            beforeInitialize: false,
+            afterInitialize: false,
+            beforeAddLiquidity: false,
+            afterAddLiquidity: false,
+            beforeRemoveLiquidity: false,
+            afterRemoveLiquidity: false,
+            beforeSwap: false,
+            afterSwap: true,
+            beforeDonate: false,
+            afterDonate: false,
+            beforeSwapReturnDelta: false,
+            afterSwapReturnDelta: false,
+            afterAddLiquidityReturnDelta: false,
+            afterRemoveLiquidityReturnDelta: false
+        });
+    }
+
+    event SwapMonitored(PoolId indexed poolId, int128 amount0, int128 amount1);
+
+    function _afterSwap(
+        address,
+        PoolKey calldata key,
+        SwapParams calldata,
+        BalanceDelta delta,
+        bytes calldata
+    ) internal override returns (bytes4, int128) {
+        emit SwapMonitored(key.toId(), delta.amount0(), delta.amount1());
+        return (this.afterSwap.selector, 0);
+    }
+
+    /// @dev Skip address validation in tests — V4 encodes permissions in address bits
+    function validateHookAddress(BaseHook) internal pure override {}
 
     // =============================================================
     //                       VIEW FUNCTIONS

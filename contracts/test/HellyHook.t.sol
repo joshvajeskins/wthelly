@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Test, console} from "forge-std/Test.sol";
 import {HellyHook} from "../src/HellyHook.sol";
 import {MockUSDC} from "../src/MockUSDC.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 contract HellyHookTest is Test {
     HellyHook public hook;
@@ -14,13 +15,16 @@ contract HellyHookTest is Test {
     address public bob = address(0xB0B);
     address public charlie = address(0xC4A7);
 
+    // Dummy PoolManager address for testing (hook skips address validation)
+    IPoolManager constant MOCK_POOL_MANAGER = IPoolManager(address(0xdead));
+
     bytes32 public marketId = keccak256("ETH-5k-2026");
     uint256 public constant PLATFORM_FEE_BPS = 200; // 2%
     uint256 public constant ONE_USDC = 1e6;
 
     function setUp() public {
         usdc = new MockUSDC();
-        hook = new HellyHook(address(usdc), PLATFORM_FEE_BPS);
+        hook = new HellyHook(MOCK_POOL_MANAGER, address(usdc), PLATFORM_FEE_BPS);
 
         // Mint USDC to test users
         usdc.mint(alice, 10000 * ONE_USDC);
