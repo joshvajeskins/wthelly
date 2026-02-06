@@ -10,6 +10,7 @@ import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
 import "./globals.css";
 import { Toaster } from "sonner";
+import { Web3Provider } from "@/providers/web3-provider";
 
 export const metadata: Metadata = {
   title: "wthelly | Private Betting Platform",
@@ -40,7 +41,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen bg-background antialiased">
-        {children}
+        <Web3Provider>
+          {children}
+        </Web3Provider>
         <Toaster
           position="top-right"
           toastOptions={{
@@ -55,5 +58,3 @@ export default function RootLayout({
     </html>
   );
 }
-
-

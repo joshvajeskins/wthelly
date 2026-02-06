@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { ConnectButton } from "@rainbow-me/rainbowkit"
 
 const navLinks = [
   { href: "/", label: "home" },
@@ -12,6 +13,70 @@ const navLinks = [
   { href: "/how-it-works", label: "how it works" },
   { href: "/profile", label: "profile" },
 ]
+
+function WthellyConnectButton() {
+  return (
+    <ConnectButton.Custom>
+      {({
+        account,
+        chain,
+        openAccountModal,
+        openChainModal,
+        openConnectModal,
+        mounted,
+      }) => {
+        const ready = mounted;
+        const connected = ready && account && chain;
+
+        return (
+          <div
+            {...(!ready && {
+              "aria-hidden": true,
+              style: {
+                opacity: 0,
+                pointerEvents: "none" as const,
+                userSelect: "none" as const,
+              },
+            })}
+          >
+            {(() => {
+              if (!connected) {
+                return (
+                  <Button
+                    onClick={openConnectModal}
+                    className="bg-[#BFFF00] hover:bg-white text-black font-black lowercase tracking-wider"
+                  >
+                    connect
+                  </Button>
+                );
+              }
+
+              if (chain.unsupported) {
+                return (
+                  <Button
+                    onClick={openChainModal}
+                    className="bg-red-500 hover:bg-red-600 text-white font-black lowercase tracking-wider"
+                  >
+                    wrong network
+                  </Button>
+                );
+              }
+
+              return (
+                <Button
+                  onClick={openAccountModal}
+                  className="bg-[#BFFF00] hover:bg-white text-black font-black lowercase tracking-wider"
+                >
+                  {account.displayName}
+                </Button>
+              );
+            })()}
+          </div>
+        );
+      }}
+    </ConnectButton.Custom>
+  );
+}
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
@@ -45,9 +110,7 @@ export function Header() {
 
           {/* Desktop Wallet Button */}
           <div className="hidden md:flex items-center">
-            <Button className="bg-[#BFFF00] hover:bg-white text-black font-black lowercase tracking-wider">
-              connect
-            </Button>
+            <WthellyConnectButton />
           </div>
 
           {/* Mobile Menu Button */}
@@ -79,9 +142,7 @@ export function Header() {
               </Link>
             ))}
             <div className="pt-2">
-              <Button className="w-full bg-[#BFFF00] hover:bg-white text-black font-black lowercase tracking-wider">
-                connect
-              </Button>
+              <WthellyConnectButton />
             </div>
           </nav>
         </div>
@@ -89,4 +150,3 @@ export function Header() {
     </header>
   )
 }
-
