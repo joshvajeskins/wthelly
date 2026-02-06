@@ -1,5 +1,6 @@
 import type { Market, MarketCategory, MarketStatus } from "@/types";
 import type { OnChainMarket } from "@/hooks/use-market-events";
+import { CONTRACTS } from "@/config/constants";
 
 /**
  * Derive market status from on-chain data
@@ -91,7 +92,7 @@ export function toFrontendMarket(onChain: OnChainMarket): Market {
     status,
     outcome: onChain.resolved ? onChain.outcome : undefined,
     participantCount: Number(onChain.commitCount),
-    createdAt: new Date(), // Not available from events in this simple impl
-    creatorAddress: "0x0000000000000000000000000000000000000000",
+    createdAt: new Date(onChain.createdAtTimestamp),
+    creatorAddress: CONTRACTS.hellyHook, // markets are created via the contract
   };
 }

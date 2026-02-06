@@ -9,6 +9,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { MarketDetailContent } from "./market-detail-content";
 import { useMarket } from "@/hooks/use-markets";
+import { useMarketBets } from "@/hooks/use-bets";
 
 export default function MarketDetailPage({
   params,
@@ -17,6 +18,7 @@ export default function MarketDetailPage({
 }) {
   const { id } = use(params);
   const { market, isLoading } = useMarket(id);
+  const { userBets } = useMarketBets(id);
 
   if (isLoading) {
     return (
@@ -58,7 +60,7 @@ export default function MarketDetailPage({
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
-      <MarketDetailContent market={market} userBets={[]} />
+      <MarketDetailContent market={market} userBets={userBets} />
       <Footer />
       <MobileNav />
     </div>

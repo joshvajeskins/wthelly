@@ -5,15 +5,20 @@ import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { EmptyState } from "@/components/shared";
+import { BetCard } from "@/components/betting";
 import { formatCurrency, formatAddress } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useUser } from "@/hooks/use-user";
+import { useBets } from "@/hooks/use-bets";
+import { useMarkets } from "@/hooks/use-markets";
 import { useClearnode } from "@/providers/clearnode-provider";
 import { Wifi, WifiOff, Loader2 } from "lucide-react";
 
 export default function ProfilePage() {
   const { user, isConnected } = useUser();
+  const { activeBets, betHistory } = useBets();
+  const { markets } = useMarkets();
   const {
     isConnected: clearnodeConnected,
     isAuthenticated: clearnodeAuthenticated,
@@ -208,18 +213,30 @@ export default function ProfilePage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl md:text-2xl font-black lowercase text-[#BFFF00]">active bets</h2>
             <span className="px-3 py-1 border-2 border-[#BFFF00] text-[#BFFF00] text-sm font-bold lowercase">
-              0 active
+              {activeBets.length} active
             </span>
           </div>
 
-          <Card className="border-2 border-border">
-            <CardContent className="p-12">
-              <EmptyState
-                title="no active bets"
-                description="your on-chain commitments will appear here after you place bets"
-              />
-            </CardContent>
-          </Card>
+          {activeBets.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {activeBets.map((bet) => {
+                const market = markets.find(
+                  (m) => m.id.toLowerCase() === bet.marketId.toLowerCase()
+                );
+                if (!market) return null;
+                return <BetCard key={bet.id} bet={bet} market={market} />;
+              })}
+            </div>
+          ) : (
+            <Card className="border-2 border-border">
+              <CardContent className="p-12">
+                <EmptyState
+                  title="no active bets"
+                  description="your on-chain commitments will appear here after you place bets"
+                />
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Bet History Section */}
@@ -227,18 +244,30 @@ export default function ProfilePage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl md:text-2xl font-black lowercase text-[#BFFF00]">bet history</h2>
             <span className="px-3 py-1 border-2 border-border text-muted-foreground text-sm font-bold lowercase">
-              0 total
+              {betHistory.length} total
             </span>
           </div>
 
-          <Card className="border-2 border-border">
-            <CardContent className="p-12">
-              <EmptyState
-                title="no bet history"
-                description="your completed bets will appear here"
-              />
-            </CardContent>
-          </Card>
+          {betHistory.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {betHistory.map((bet) => {
+                const market = markets.find(
+                  (m) => m.id.toLowerCase() === bet.marketId.toLowerCase()
+                );
+                if (!market) return null;
+                return <BetCard key={bet.id} bet={bet} market={market} />;
+              })}
+            </div>
+          ) : (
+            <Card className="border-2 border-border">
+              <CardContent className="p-12">
+                <EmptyState
+                  title="no bet history"
+                  description="your completed bets will appear here"
+                />
+              </CardContent>
+            </Card>
+          )}
         </div>
       </main>
 

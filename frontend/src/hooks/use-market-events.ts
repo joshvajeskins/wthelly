@@ -17,6 +17,7 @@ export interface OnChainMarket {
   totalNo: bigint;
   settled: boolean;
   commitCount: bigint;
+  createdAtTimestamp: number; // unix ms from block timestamp
 }
 
 export function useOnChainMarkets() {
@@ -38,6 +39,15 @@ export function useOnChainMarkets() {
         fromBlock: HELLY_HOOK_DEPLOY_BLOCK,
         toBlock: "latest",
       });
+
+      // Fetch block timestamps for createdAt
+      const uniqueBlocks = [...new Set(logs.map((l) => l.blockNumber))];
+      const blocks = await Promise.all(
+        uniqueBlocks.map((bn) => publicClient.getBlock({ blockNumber: bn }))
+      );
+      const blockTimestamps = new Map(
+        blocks.map((b) => [b.number, Number(b.timestamp) * 1000])
+      );
 
       // Batch-read current state for each market
       const marketPromises = logs.map(async (log) => {
@@ -72,6 +82,7 @@ export function useOnChainMarkets() {
           totalNo,
           settled,
           commitCount,
+          createdAtTimestamp: blockTimestamps.get(log.blockNumber) || Date.now(),
         };
       });
 

@@ -1,7 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
+import { usePrivy } from "@privy-io/react-auth";
 import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { useHellyBalance, useUsdcBalance } from "./use-contract-reads";
+import { useBets } from "./use-bets";
+import { useOnChainMarkets } from "./use-market-events";
 import { useClearnode } from "@/providers/clearnode-provider";
 import { USDC_DECIMALS } from "@/config/constants";
 import type { User, ChannelState } from "@/types";
@@ -9,29 +13,57 @@ import type { User, ChannelState } from "@/types";
 export function useUser() {
   const { address, isConnected } = usePrivyAccount();
   const { data: hellyBalanceRaw } = useHellyBalance(address);
-  const { data: usdcBalanceRaw } = useUsdcBalance(address);
+  const { activeBets, betHistory, allBets, isLoading: betsLoading } = useBets();
+  const { markets: onChainMarkets } = useOnChainMarkets();
 
   const hellyBalance = hellyBalanceRaw
     ? Number(hellyBalanceRaw) / 10 ** USDC_DECIMALS
     : 0;
 
-  const user: User | null = isConnected && address
-    ? {
-        address,
-        wins: 0,
-        losses: 0,
-        winRate: 0,
-        totalWagered: 0,
-        streak: 0,
-        channelBalance: hellyBalance,
-        channelNonce: 0,
-        createdAt: new Date(),
+  const stats = useMemo(() => {
+    const totalWagered = allBets.reduce((sum, bet) => sum + bet.amount, 0);
+
+    let wins = 0;
+    let losses = 0;
+
+    for (const bet of betHistory) {
+      const market = onChainMarkets.find(
+        (m) => m.id.toLowerCase() === bet.marketId.toLowerCase()
+      );
+      if (market && market.resolved && bet.direction) {
+        const userBetYes = bet.direction === "yes";
+        if (userBetYes === market.outcome) {
+          wins++;
+        } else {
+          losses++;
+        }
       }
-    : null;
+    }
+
+    const winRate =
+      wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
+
+    return { totalWagered, wins, losses, winRate };
+  }, [allBets, betHistory, onChainMarkets]);
+
+  const user: User | null =
+    isConnected && address
+      ? {
+          address,
+          wins: stats.wins,
+          losses: stats.losses,
+          winRate: stats.winRate,
+          totalWagered: stats.totalWagered,
+          streak: 0,
+          channelBalance: hellyBalance,
+          channelNonce: 0,
+          createdAt: new Date(),
+        }
+      : null;
 
   return {
     user,
-    isLoading: false,
+    isLoading: betsLoading,
     isConnected,
   };
 }
@@ -67,12 +99,13 @@ export function useChannelState() {
 
 export function useWallet() {
   const { address, isConnected, isConnecting } = usePrivyAccount();
+  const { login, logout } = usePrivy();
 
   return {
     isConnected,
     isConnecting,
-    connect: async () => {},
-    disconnect: () => {},
+    connect: login,
+    disconnect: logout,
     address: address || null,
   };
 }
