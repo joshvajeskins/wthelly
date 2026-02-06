@@ -4,6 +4,10 @@
  */
 
 import { type Hex } from "viem";
+import {
+  NitroliteRPC,
+  type MessageSigner,
+} from "@erc7824/nitrolite";
 
 export interface ClearnodeClientConfig {
   url?: string;
@@ -14,6 +18,20 @@ interface PendingRequest {
   resolve: (value: any) => void;
   reject: (error: Error) => void;
   method: string;
+}
+
+export interface ChannelInfo {
+  channelId: string;
+  participants: string[];
+  status: string;
+  balances: Record<string, string>;
+}
+
+export interface AppSessionInfo {
+  sessionId: string;
+  appDefinition: string;
+  participants: string[];
+  allocations: Array<{ participant: string; asset: string; amount: string }>;
 }
 
 const DEFAULT_WS_URL = "ws://localhost:8000/ws";
@@ -177,6 +195,125 @@ export class ClearnodeClient {
     return false;
   }
 
+  // =============================================================
+  //                   CHANNEL MANAGEMENT
+  // =============================================================
+
+  /**
+   * Create a new state channel with Clearnode.
+   */
+  async createChannel(
+    signer: MessageSigner,
+    params: {
+      chainId: number;
+      participant: string;
+      token: string;
+      amount: string;
+    }
+  ): Promise<{ channelId: string }> {
+    return this.callRpc(signer, "create_channel", {
+      participant: params.participant,
+      chain_id: params.chainId,
+      token: params.token,
+      amount: params.amount,
+    });
+  }
+
+  /**
+   * Get all channels for a participant.
+   */
+  async getChannels(
+    signer: MessageSigner,
+    participant: string
+  ): Promise<ChannelInfo[]> {
+    const result = await this.callRpc(signer, "get_channels", {
+      participant,
+    });
+    return result.channels || [];
+  }
+
+  /**
+   * Create an app session for a prediction market bet.
+   */
+  async createAppSession(
+    signer: MessageSigner,
+    params: {
+      appDefinition: string;
+      participants: string[];
+      allocations: Array<{ participant: string; asset: string; amount: string }>;
+    }
+  ): Promise<{ sessionId: string }> {
+    return this.callRpc(signer, "create_app_session", {
+      definition: {
+        application: params.appDefinition,
+        participants: params.participants,
+        protocol: "NitroRPC/0.4",
+      },
+      allocations: params.allocations,
+    });
+  }
+
+  /**
+   * Submit an app state update (e.g. a bet).
+   */
+  async submitAppState(
+    signer: MessageSigner,
+    params: {
+      sessionId: string;
+      intent: "operate" | "initialize" | "resize" | "finalize";
+      data: string;
+      allocations: Array<{ participant: string; asset: string; amount: string }>;
+    }
+  ): Promise<{ stateHash: string }> {
+    return this.callRpc(signer, "submit_app_state", {
+      session_id: params.sessionId,
+      intent: params.intent,
+      data: params.data,
+      allocations: params.allocations,
+    });
+  }
+
+  /**
+   * Close an app session with final allocations (settlement).
+   */
+  async closeAppSession(
+    signer: MessageSigner,
+    params: {
+      sessionId: string;
+      allocations: Array<{ participant: string; asset: string; amount: string }>;
+    }
+  ): Promise<{ success: boolean }> {
+    return this.callRpc(signer, "close_app_session", {
+      session_id: params.sessionId,
+      final_allocations: params.allocations,
+    });
+  }
+
+  /**
+   * Get app sessions (optionally filtered by app definition).
+   */
+  async getAppSessions(
+    signer: MessageSigner,
+    appDefinition?: string
+  ): Promise<AppSessionInfo[]> {
+    const result = await this.callRpc(signer, "get_app_sessions", {
+      ...(appDefinition ? { application: appDefinition } : {}),
+    });
+    return result.sessions || [];
+  }
+
+  /**
+   * Get ledger balances for the authenticated user.
+   */
+  async getLedgerBalances(signer: MessageSigner): Promise<Record<string, string>> {
+    const result = await this.callRpc(signer, "get_ledger_balances", {});
+    return result.balances || {};
+  }
+
+  // =============================================================
+  //                       ACCESSORS
+  // =============================================================
+
   get isConnected(): boolean {
     return this._connected;
   }
@@ -185,7 +322,54 @@ export class ClearnodeClient {
     return this._authenticated;
   }
 
-  // --- Private ---
+  // =============================================================
+  //                       PRIVATE
+  // =============================================================
+
+  /**
+   * Generic signed RPC call to Clearnode.
+   */
+  private async callRpc(
+    signer: MessageSigner,
+    method: string,
+    params: Record<string, any>
+  ): Promise<any> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error("WebSocket not connected");
+    }
+    if (!this._authenticated) {
+      throw new Error("Not authenticated");
+    }
+
+    let request = NitroliteRPC.createRequest({
+      method: method as any,
+      params,
+    });
+
+    request = await NitroliteRPC.signRequestMessage(request, signer);
+
+    const requestId = request.req![0];
+    this.ws.send(JSON.stringify(request));
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error(`Request timeout for ${method}`));
+      }, this.requestTimeout);
+
+      this.pendingRequests.set(requestId, {
+        resolve: (result) => {
+          clearTimeout(timeout);
+          resolve(result);
+        },
+        reject: (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        },
+        method,
+      });
+    });
+  }
 
   private handleMessage(raw: string): void {
     try {

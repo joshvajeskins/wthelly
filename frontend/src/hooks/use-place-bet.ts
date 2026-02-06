@@ -5,7 +5,9 @@ import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { generateSecret, computeCommitmentHash } from "@/lib/commitment";
 import { useSubmitCommitment } from "./use-contract-writes";
 import { useTee } from "@/providers/tee-provider";
-import { ONE_USDC } from "@/config/constants";
+import { useClearnode } from "@/providers/clearnode-provider";
+import { useStateChannel } from "@/hooks/use-state-channel";
+import { CLEARNODE_CONTRACTS } from "@/config/constants";
 
 const STORAGE_KEY = "wthelly_secrets";
 
@@ -16,6 +18,7 @@ export interface BetSecret {
   amount: bigint;
   commitHash: `0x${string}`;
   timestamp: number;
+  appSessionId?: string;
 }
 
 function loadSecrets(): BetSecret[] {
@@ -57,6 +60,9 @@ export function usePlaceBet() {
   const { submitCommitment, hash, isPending, isConfirming, isSuccess, error } =
     useSubmitCommitment();
   const { teeClient, isConnected: teeConnected } = useTee();
+  const { isAuthenticated: clearnodeConnected } = useClearnode();
+  const { isReady: stateChannelReady, createAppSession, submitBetState } =
+    useStateChannel();
   const [isPlacing, setIsPlacing] = useState(false);
 
   const placeBet = async (
@@ -78,10 +84,10 @@ export function usePlaceBet() {
         address
       );
 
-      // Submit commitment on-chain
+      // Step 1: Submit commitment on-chain (L1 anchor)
       await submitCommitment(marketId, commitHash, amount);
 
-      // Send encrypted bet to TEE server (if connected)
+      // Step 2: Send encrypted bet to TEE server (if connected)
       if (teeConnected) {
         try {
           await teeClient.submitEncryptedBet({
@@ -98,7 +104,52 @@ export function usePlaceBet() {
         }
       }
 
-      // Store secret in localStorage for later reveal (fallback)
+      // Step 3: Route through state channel (if Clearnode authenticated)
+      let appSessionId: string | undefined;
+      if (stateChannelReady && clearnodeConnected) {
+        try {
+          // Create app session for this market bet
+          const sessionId = await createAppSession(
+            marketId,
+            [address, CLEARNODE_CONTRACTS.custody],
+            [
+              {
+                participant: address,
+                asset: CLEARNODE_CONTRACTS.usdc,
+                amount: amount.toString(),
+              },
+            ]
+          );
+
+          // Submit initial bet state
+          const betData = JSON.stringify({
+            marketId,
+            commitHash,
+            amount: amount.toString(),
+            timestamp: Date.now(),
+          });
+
+          await submitBetState(
+            sessionId,
+            betData,
+            [
+              {
+                participant: address,
+                asset: CLEARNODE_CONTRACTS.usdc,
+                amount: amount.toString(),
+              },
+            ]
+          );
+
+          appSessionId = sessionId;
+          console.log("[Clearnode] Bet submitted via state channel, session:", sessionId);
+        } catch (err) {
+          // State channel submission is non-fatal — on-chain commitment is the source of truth
+          console.warn("[Clearnode] Failed to submit via state channel (on-chain commitment still valid):", err);
+        }
+      }
+
+      // Step 4: Store secret in localStorage for later reveal (fallback)
       const secrets = loadSecrets();
       secrets.push({
         marketId,
@@ -107,10 +158,11 @@ export function usePlaceBet() {
         amount,
         commitHash,
         timestamp: Date.now(),
+        appSessionId,
       });
       saveSecrets(secrets);
 
-      return { commitHash, secret };
+      return { commitHash, secret, appSessionId };
     } finally {
       setIsPlacing(false);
     }
@@ -124,5 +176,6 @@ export function usePlaceBet() {
     hash,
     error,
     teeConnected,
+    clearnodeConnected,
   };
 }

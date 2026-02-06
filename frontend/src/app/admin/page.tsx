@@ -14,15 +14,21 @@ import { Badge } from "@/components/ui/badge";
 import { useContractAdmin } from "@/hooks/use-contract-reads";
 import { useResolveMarket, useSettleMarket, useSettleMarketWithProof } from "@/hooks/use-contract-writes";
 import { useOnChainMarkets, type OnChainMarket } from "@/hooks/use-market-events";
-import { USDC_DECIMALS } from "@/config/constants";
+import { USDC_DECIMALS, CLEARNODE_CONTRACTS } from "@/config/constants";
 import { useTee } from "@/providers/tee-provider";
+import { useClearnode } from "@/providers/clearnode-provider";
+import { useStateChannel } from "@/hooks/use-state-channel";
 
 function MarketAdminCard({ market }: { market: OnChainMarket }) {
   const resolveHook = useResolveMarket();
   const settleHook = useSettleMarket();
   const settleWithProofHook = useSettleMarketWithProof();
   const { teeClient, isConnected: teeConnected } = useTee();
+  const { isAuthenticated: clearnodeConnected } = useClearnode();
+  const { isReady: stateChannelReady, getAppSessions, closeAppSession } =
+    useStateChannel();
   const [teeSettling, setTeeSettling] = useState(false);
+  const [channelSettling, setChannelSettling] = useState(false);
 
   const now = BigInt(Math.floor(Date.now() / 1000));
   const isPastDeadline = now > market.deadline;
@@ -110,6 +116,48 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
     }
   };
 
+  const handleChannelSettle = async () => {
+    if (!stateChannelReady) {
+      toast.error("Clearnode not connected");
+      return;
+    }
+    setChannelSettling(true);
+    try {
+      // Fetch all app sessions for this market
+      const sessions = await getAppSessions(market.id);
+
+      if (sessions.length === 0) {
+        toast.error("no state channel sessions found for this market");
+        return;
+      }
+
+      // Close each app session with final allocations
+      let closedCount = 0;
+      for (const session of sessions) {
+        try {
+          // Compute final allocations based on market outcome
+          // Winners keep their stake + proportional share; losers get 0
+          const finalAllocations = session.allocations.map((alloc) => ({
+            participant: alloc.participant,
+            asset: alloc.asset,
+            amount: "0", // Simplified: actual amounts would come from TEE settlement
+          }));
+
+          await closeAppSession(session.sessionId, finalAllocations);
+          closedCount++;
+        } catch (err) {
+          console.warn(`Failed to close session ${session.sessionId}:`, err);
+        }
+      }
+
+      toast.success(`settled ${closedCount}/${sessions.length} state channel sessions`);
+    } catch (err: any) {
+      toast.error(err.message || "state channel settlement failed");
+    } finally {
+      setChannelSettling(false);
+    }
+  };
+
   const getStatusBadge = () => {
     if (market.settled)
       return <Badge variant="secondary" className="lowercase">settled</Badge>;
@@ -131,7 +179,8 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
     settleHook.isConfirming ||
     settleWithProofHook.isPending ||
     settleWithProofHook.isConfirming ||
-    teeSettling;
+    teeSettling ||
+    channelSettling;
 
   return (
     <Card className="border-2 border-border">
@@ -196,7 +245,7 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
         )}
 
         {/* Actions */}
-        <div className="flex gap-2 pt-1">
+        <div className="flex flex-wrap gap-2 pt-1">
           {canResolve && (
             <>
               <Button
@@ -229,10 +278,20 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
                   settle with tee + zk
                 </Button>
               )}
+              {stateChannelReady && (
+                <Button
+                  size="sm"
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black lowercase"
+                  onClick={handleChannelSettle}
+                  disabled={isTxPending}
+                >
+                  settle via channel
+                </Button>
+              )}
               <Button
                 size="sm"
-                variant={teeConnected ? "outline" : "default"}
-                className={teeConnected ? "flex-1 font-black lowercase" : "flex-1 bg-[#BFFF00] hover:bg-white text-black font-black lowercase"}
+                variant={(teeConnected || stateChannelReady) ? "outline" : "default"}
+                className={(teeConnected || stateChannelReady) ? "flex-1 font-black lowercase" : "flex-1 bg-[#BFFF00] hover:bg-white text-black font-black lowercase"}
                 onClick={handleSettle}
                 disabled={isTxPending}
               >

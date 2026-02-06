@@ -86,6 +86,16 @@ export const EXTERNAL_LINKS = {
 // TEE server URL
 export const TEE_SERVER_URL = process.env.NEXT_PUBLIC_TEE_SERVER_URL || "http://localhost:3001";
 
+// Clearnode / Yellow Network contract addresses (deterministic from docker-compose)
+export const CLEARNODE_CONTRACTS = {
+  custody: "0x8658501c98C3738026c4e5c361c6C3fa95DfB255" as `0x${string}`,
+  adjudicator: "0xcbbc03a873c11beeFA8D99477E830be48d8Ae6D7" as `0x${string}`,
+  usdc: "0xbD24c53072b9693A35642412227043Ffa5fac382" as `0x${string}`,
+} as const;
+
+// Clearnode WebSocket URL
+export const CLEARNODE_WS_URL = process.env.NEXT_PUBLIC_CLEARNODE_WS_URL || "ws://localhost:8000/ws";
+
 // Contract addresses (Base Sepolia)
 export const CONTRACTS = {
   hellyHook: "0x218dc19b1e7dab45149a564839fffd2d6ed9e1ce" as `0x${string}`,
