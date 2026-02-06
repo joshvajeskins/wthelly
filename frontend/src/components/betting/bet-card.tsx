@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -9,9 +10,12 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TxStatus } from "@/components/shared/tx-status";
 import { formatCurrency, formatRelativeTime } from "@/lib/format";
 import type { Bet, Market, BetStatus } from "@/types";
-import { EyeOff, TrendingUp, TrendingDown, X, Clock, Lock } from "lucide-react";
+import { EyeOff, TrendingUp, TrendingDown, X, Clock, Lock, Eye } from "lucide-react";
+import { getBetSecretForMarket } from "@/hooks/use-place-bet";
+import { useRevealBet } from "@/hooks/use-contract-writes";
 
 interface BetCardProps {
   bet: Bet;
@@ -34,6 +38,36 @@ export function BetCard({ bet, market, onCancel }: BetCardProps) {
   const statusConfig = STATUS_CONFIG[bet.status];
   const isEncrypted = bet.status === "active";
   const showCancel = bet.status === "active" && market.status === "open" && onCancel;
+
+  // Reveal functionality
+  const { revealBet, hash, isPending, isConfirming, isSuccess, error } = useRevealBet();
+  const canReveal =
+    bet.status === "active" &&
+    (market.status === "resolved" || market.status === "closed");
+  const secret = canReveal
+    ? getBetSecretForMarket(bet.marketId as `0x${string}`)
+    : undefined;
+
+  const handleReveal = async () => {
+    if (!secret) {
+      toast.error("no secret found in browser. was this bet placed from another device?");
+      return;
+    }
+    try {
+      await revealBet(
+        bet.marketId as `0x${string}`,
+        secret.isYes,
+        secret.secret
+      );
+      toast.success("bet revealed!");
+    } catch (err: any) {
+      if (err.message?.includes("User rejected")) {
+        toast.error("transaction rejected");
+      } else {
+        toast.error("failed to reveal bet");
+      }
+    }
+  };
 
   const getDirectionIcon = () => {
     if (!bet.direction) return null;
@@ -113,17 +147,47 @@ export function BetCard({ bet, market, onCancel }: BetCardProps) {
         </div>
 
         {/* Encrypted bet info */}
-        {isEncrypted && (
+        {isEncrypted && !canReveal && (
           <div className="rounded-md bg-muted p-2 text-xs text-muted-foreground flex items-center gap-1.5">
             <Lock className="size-3" />
-            encrypted in tee — hidden until resolution
+            encrypted — hidden until resolution
           </div>
+        )}
+
+        {/* Reveal prompt */}
+        {canReveal && secret && (
+          <div className="rounded-md bg-[#BFFF00]/10 border border-[#BFFF00]/30 p-2 text-xs text-[#BFFF00] flex items-center gap-1.5">
+            <Eye className="size-3" />
+            market resolved — reveal your bet to claim payout
+          </div>
+        )}
+
+        {/* Tx Status for reveal */}
+        {(isPending || isConfirming || isSuccess || error) && (
+          <TxStatus
+            hash={hash}
+            isPending={isPending}
+            isConfirming={isConfirming}
+            isSuccess={isSuccess}
+            error={error}
+          />
         )}
       </CardContent>
 
       {/* Actions */}
-      {showCancel && (
-        <CardFooter className="pt-0 gap-2">
+      <CardFooter className="pt-0 gap-2">
+        {canReveal && secret && (
+          <Button
+            size="sm"
+            className="flex-1 bg-[#BFFF00] hover:bg-white text-black font-black lowercase"
+            onClick={handleReveal}
+            disabled={isPending || isConfirming}
+          >
+            <Eye className="size-4" />
+            {isPending || isConfirming ? "revealing..." : "reveal bet"}
+          </Button>
+        )}
+        {showCancel && (
           <Button
             variant="outline"
             size="sm"
@@ -133,8 +197,8 @@ export function BetCard({ bet, market, onCancel }: BetCardProps) {
             <X className="size-4" />
             cancel
           </Button>
-        </CardFooter>
-      )}
+        )}
+      </CardFooter>
     </Card>
   );
 }

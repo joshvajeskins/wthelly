@@ -8,3 +8,4 @@ export {
   InlineLoader,
 } from "./loading";
 export { EmptyState } from "./empty-state";
+export { TxStatus } from "./tx-status";

@@ -1,12 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import { useAccount } from "wagmi";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
-import { mockUser, mockDeposits } from "@/lib/mock-data";
-import { formatCurrency, formatDateTime } from "@/lib/format";
-import { SUPPORTED_CHAINS, SUPPORTED_TOKENS } from "@/config/constants";
+import { EmptyState } from "@/components/shared";
+import { TxStatus } from "@/components/shared/tx-status";
+import { formatCurrency } from "@/lib/format";
+import { USDC_DECIMALS } from "@/config/constants";
+import {
+  useHellyBalance,
+  useUsdcBalance,
+  useUsdcAllowance,
+} from "@/hooks/use-contract-reads";
+import {
+  useMintTestUsdc,
+  useApproveUsdc,
+  useDeposit,
+  useWithdraw,
+} from "@/hooks/use-contract-writes";
+import { CONTRACTS } from "@/config/constants";
 import {
   Card,
   CardContent,
@@ -17,49 +31,106 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 
 export default function DepositPage() {
-  const [sourceChain, setSourceChain] = useState("");
-  const [sourceToken, setSourceToken] = useState("");
-  const [amount, setAmount] = useState("");
+  const { address, isConnected } = useAccount();
+  const [depositAmount, setDepositAmount] = useState("");
+  const [withdrawAmount, setWithdrawAmount] = useState("");
 
-  const handleDeposit = () => {
-    // TODO: Implement deposit logic with LI.FI
-    console.log("deposit:", { sourceChain, sourceToken, amount });
+  // Read contract data
+  const { data: hellyBalanceRaw, refetch: refetchHelly } = useHellyBalance(address);
+  const { data: usdcBalanceRaw, refetch: refetchUsdc } = useUsdcBalance(address);
+  const { data: allowanceRaw, refetch: refetchAllowance } = useUsdcAllowance(address);
+
+  // Write hooks
+  const mintHook = useMintTestUsdc();
+  const approveHook = useApproveUsdc();
+  const depositHook = useDeposit();
+  const withdrawHook = useWithdraw();
+
+  const hellyBalance = hellyBalanceRaw
+    ? Number(hellyBalanceRaw) / 10 ** USDC_DECIMALS
+    : 0;
+  const usdcBalance = usdcBalanceRaw
+    ? Number(usdcBalanceRaw) / 10 ** USDC_DECIMALS
+    : 0;
+  const allowance = allowanceRaw
+    ? Number(allowanceRaw) / 10 ** USDC_DECIMALS
+    : 0;
+
+  const depositAmountNum = parseFloat(depositAmount) || 0;
+  const withdrawAmountNum = parseFloat(withdrawAmount) || 0;
+  const depositAmountBig = BigInt(Math.round(depositAmountNum * 1e6));
+  const withdrawAmountBig = BigInt(Math.round(withdrawAmountNum * 1e6));
+  const needsApproval = depositAmountNum > 0 && allowance < depositAmountNum;
+
+  const isTxPending =
+    mintHook.isPending ||
+    mintHook.isConfirming ||
+    approveHook.isPending ||
+    approveHook.isConfirming ||
+    depositHook.isPending ||
+    depositHook.isConfirming ||
+    withdrawHook.isPending ||
+    withdrawHook.isConfirming;
+
+  const handleMint = async () => {
+    if (!address) return;
+    const amount = BigInt(1000) * BigInt(1e6); // 1000 USDC
+    await mintHook.mint(address, amount);
+    setTimeout(() => {
+      refetchUsdc();
+    }, 3000);
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "completed":
-        return (
-          <Badge className="bg-[#BFFF00] text-black font-bold lowercase">
-            completed
-          </Badge>
-        );
-      case "pending":
-        return (
-          <Badge className="bg-transparent border-2 border-[#BFFF00] text-[#BFFF00] font-bold lowercase">
-            pending
-          </Badge>
-        );
-      case "failed":
-        return (
-          <Badge className="bg-red-500 text-white font-bold lowercase">
-            failed
-          </Badge>
-        );
-      default:
-        return <Badge className="lowercase">{status}</Badge>;
-    }
+  const handleApprove = async () => {
+    // Approve max uint256 for convenience
+    const maxApproval = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    await approveHook.approve(maxApproval);
+    setTimeout(() => {
+      refetchAllowance();
+    }, 3000);
   };
+
+  const handleDeposit = async () => {
+    if (depositAmountNum <= 0) return;
+    await depositHook.deposit(depositAmountBig);
+    setTimeout(() => {
+      refetchHelly();
+      refetchUsdc();
+      setDepositAmount("");
+    }, 3000);
+  };
+
+  const handleWithdraw = async () => {
+    if (withdrawAmountNum <= 0) return;
+    await withdrawHook.withdraw(withdrawAmountBig);
+    setTimeout(() => {
+      refetchHelly();
+      refetchUsdc();
+      setWithdrawAmount("");
+    }, 3000);
+  };
+
+  if (!isConnected) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <Header />
+        <main className="flex-1 container mx-auto px-4 py-8 max-w-6xl pb-24 lg:pb-8">
+          <Card className="border-2 border-border">
+            <CardContent className="p-12">
+              <EmptyState
+                title="connect wallet"
+                description="connect your wallet to deposit and withdraw funds"
+              />
+            </CardContent>
+          </Card>
+        </main>
+        <Footer />
+        <MobileNav />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -68,131 +139,188 @@ export default function DepositPage() {
       <main className="flex-1 container mx-auto px-4 py-8 max-w-6xl pb-24 lg:pb-8">
         {/* Page Header */}
         <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-black lowercase text-[#BFFF00] mb-2">deposit funds</h1>
+          <h1 className="text-3xl md:text-4xl font-black lowercase text-[#BFFF00] mb-2">
+            deposit funds
+          </h1>
           <p className="text-muted-foreground lowercase">
-            bridge from any chain via li.fi
+            deposit usdc to hellyhook contract to start betting
           </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
-            {/* Current Balance Card */}
-            <Card className="border-2 border-border">
-              <CardHeader>
-                <CardTitle className="lowercase font-black">channel balance</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-black text-[#BFFF00]">
-                  {formatCurrency(mockUser.channelBalance)}
+            {/* Balance Cards */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card className="border-2 border-border">
+                <CardHeader className="pb-2">
+                  <CardTitle className="lowercase font-black text-sm">
+                    wallet usdc
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-black text-[#BFFF00]">
+                    {formatCurrency(usdcBalance)}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-2 border-border">
+                <CardHeader className="pb-2">
+                  <CardTitle className="lowercase font-black text-sm">
+                    hellyhook balance
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-black text-[#BFFF00]">
+                    {formatCurrency(hellyBalance)}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Mint Test USDC */}
+            <Card className="border-2 border-dashed border-border">
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="font-bold lowercase text-sm">
+                    testnet: mint 1,000 usdc
+                  </p>
+                  <p className="text-xs text-muted-foreground lowercase">
+                    base sepolia test tokens
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {(mintHook.isPending || mintHook.isConfirming) && (
+                    <TxStatus
+                      hash={mintHook.hash}
+                      isPending={mintHook.isPending}
+                      isConfirming={mintHook.isConfirming}
+                      isSuccess={mintHook.isSuccess}
+                      error={mintHook.error}
+                    />
+                  )}
+                  <Button
+                    onClick={handleMint}
+                    disabled={isTxPending}
+                    variant="outline"
+                    className="font-black lowercase border-2 border-[#BFFF00] text-[#BFFF00] hover:bg-[#BFFF00] hover:text-black"
+                  >
+                    mint
+                  </Button>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Deposit Form Card */}
+            {/* Deposit Form */}
             <Card className="border-2 border-border">
               <CardHeader>
-                <CardTitle className="lowercase font-black">deposit funds</CardTitle>
+                <CardTitle className="lowercase font-black">deposit</CardTitle>
                 <CardDescription className="lowercase">
-                  select source chain, token, and amount to deposit
+                  deposit usdc from wallet to hellyhook
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Source Chain Selector */}
                 <div className="space-y-2">
-                  <Label htmlFor="source-chain" className="lowercase font-bold text-xs text-muted-foreground">source chain</Label>
-                  <Select value={sourceChain} onValueChange={setSourceChain}>
-                    <SelectTrigger
-                      id="source-chain"
-                      className="border-2 border-border focus:border-[#BFFF00] lowercase"
-                    >
-                      <SelectValue placeholder="select chain" />
-                    </SelectTrigger>
-                    <SelectContent className="border-2 border-border">
-                      {SUPPORTED_CHAINS.map((chain) => (
-                        <SelectItem key={chain.id} value={chain.id} className="lowercase">
-                          {chain.name.toLowerCase()}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Source Token Selector */}
-                <div className="space-y-2">
-                  <Label htmlFor="source-token" className="lowercase font-bold text-xs text-muted-foreground">source token</Label>
-                  <Select value={sourceToken} onValueChange={setSourceToken}>
-                    <SelectTrigger
-                      id="source-token"
-                      className="border-2 border-border focus:border-[#BFFF00] lowercase"
-                    >
-                      <SelectValue placeholder="select token" />
-                    </SelectTrigger>
-                    <SelectContent className="border-2 border-border">
-                      {SUPPORTED_TOKENS.map((token) => (
-                        <SelectItem key={token.symbol} value={token.symbol} className="lowercase">
-                          {token.name.toLowerCase()} ({token.symbol.toLowerCase()})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Amount Input */}
-                <div className="space-y-2">
-                  <Label htmlFor="amount" className="lowercase font-bold text-xs text-muted-foreground">amount</Label>
+                  <Label className="lowercase font-bold text-xs text-muted-foreground">
+                    amount (usdc)
+                  </Label>
                   <Input
-                    id="amount"
                     type="number"
                     placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    value={depositAmount}
+                    onChange={(e) => setDepositAmount(e.target.value)}
                     className="border-2 border-border focus:border-[#BFFF00]"
+                    disabled={isTxPending}
                   />
                 </div>
 
-                {/* Deposit Button */}
-                <Button
-                  onClick={handleDeposit}
-                  disabled={!sourceChain || !sourceToken || !amount}
-                  className="w-full bg-[#BFFF00] hover:bg-white text-black font-black lowercase"
-                >
-                  deposit
-                </Button>
+                {/* Tx Status */}
+                {(approveHook.isPending ||
+                  approveHook.isConfirming ||
+                  depositHook.isPending ||
+                  depositHook.isConfirming) && (
+                  <TxStatus
+                    hash={approveHook.hash || depositHook.hash}
+                    isPending={approveHook.isPending || depositHook.isPending}
+                    isConfirming={
+                      approveHook.isConfirming || depositHook.isConfirming
+                    }
+                    isSuccess={depositHook.isSuccess}
+                    error={approveHook.error || depositHook.error}
+                  />
+                )}
+
+                <div className="flex gap-3">
+                  {needsApproval && (
+                    <Button
+                      onClick={handleApprove}
+                      disabled={isTxPending || depositAmountNum <= 0}
+                      className="flex-1 bg-transparent border-2 border-[#BFFF00] text-[#BFFF00] hover:bg-[#BFFF00] hover:text-black font-black lowercase"
+                    >
+                      1. approve
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleDeposit}
+                    disabled={
+                      isTxPending ||
+                      depositAmountNum <= 0 ||
+                      depositAmountNum > usdcBalance ||
+                      needsApproval
+                    }
+                    className="flex-1 bg-[#BFFF00] hover:bg-white text-black font-black lowercase"
+                  >
+                    {needsApproval ? "2. deposit" : "deposit"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Recent Deposits Section */}
+            {/* Withdraw Form */}
             <Card className="border-2 border-border">
               <CardHeader>
-                <CardTitle className="lowercase font-black">recent deposits</CardTitle>
+                <CardTitle className="lowercase font-black">withdraw</CardTitle>
                 <CardDescription className="lowercase">
-                  your latest deposit transactions
+                  withdraw usdc from hellyhook to wallet
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {mockDeposits.map((deposit) => (
-                    <div
-                      key={deposit.id}
-                      className="flex items-center justify-between p-4 border-2 border-border"
-                    >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1 lowercase">
-                          <span className="font-bold">{deposit.sourceChain.toLowerCase()}</span>
-                          <span className="text-muted-foreground">→</span>
-                          <span className="text-muted-foreground">base</span>
-                        </div>
-                        <div className="text-sm text-muted-foreground lowercase">
-                          {deposit.sourceAmount} {deposit.sourceToken.toLowerCase()}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {formatDateTime(deposit.createdAt)}
-                        </div>
-                      </div>
-                      <div>{getStatusBadge(deposit.status)}</div>
-                    </div>
-                  ))}
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="lowercase font-bold text-xs text-muted-foreground">
+                    amount (usdc)
+                  </Label>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    className="border-2 border-border focus:border-[#BFFF00]"
+                    disabled={isTxPending}
+                  />
                 </div>
+
+                {(withdrawHook.isPending || withdrawHook.isConfirming) && (
+                  <TxStatus
+                    hash={withdrawHook.hash}
+                    isPending={withdrawHook.isPending}
+                    isConfirming={withdrawHook.isConfirming}
+                    isSuccess={withdrawHook.isSuccess}
+                    error={withdrawHook.error}
+                  />
+                )}
+
+                <Button
+                  onClick={handleWithdraw}
+                  disabled={
+                    isTxPending ||
+                    withdrawAmountNum <= 0 ||
+                    withdrawAmountNum > hellyBalance
+                  }
+                  variant="outline"
+                  className="w-full font-black lowercase border-2"
+                >
+                  withdraw
+                </Button>
               </CardContent>
             </Card>
           </div>
@@ -202,12 +330,8 @@ export default function DepositPage() {
             <Card className="border-2 border-border sticky top-8">
               <CardHeader>
                 <CardTitle className="lowercase font-black">how it works</CardTitle>
-                <CardDescription className="lowercase">
-                  simple 3-step deposit process
-                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Step 1 */}
                 <div className="flex gap-4">
                   <div className="flex-shrink-0">
                     <div className="flex h-10 w-10 items-center justify-center border-2 border-[#BFFF00] text-[#BFFF00] font-black">
@@ -215,16 +339,13 @@ export default function DepositPage() {
                     </div>
                   </div>
                   <div className="flex-1 pt-1">
-                    <h3 className="font-bold mb-1 lowercase">
-                      select your source chain and token
-                    </h3>
+                    <h3 className="font-bold mb-1 lowercase">mint test usdc</h3>
                     <p className="text-sm text-muted-foreground lowercase">
-                      choose where you want to bridge from
+                      get test tokens on base sepolia
                     </p>
                   </div>
                 </div>
 
-                {/* Step 2 */}
                 <div className="flex gap-4">
                   <div className="flex-shrink-0">
                     <div className="flex h-10 w-10 items-center justify-center border-2 border-[#BFFF00] text-[#BFFF00] font-black">
@@ -232,16 +353,13 @@ export default function DepositPage() {
                     </div>
                   </div>
                   <div className="flex-1 pt-1">
-                    <h3 className="font-bold mb-1 lowercase">
-                      li.fi bridges your funds to base
-                    </h3>
+                    <h3 className="font-bold mb-1 lowercase">approve + deposit</h3>
                     <p className="text-sm text-muted-foreground lowercase">
-                      secure cross-chain transfer
+                      approve hellyhook to spend your usdc, then deposit
                     </p>
                   </div>
                 </div>
 
-                {/* Step 3 */}
                 <div className="flex gap-4">
                   <div className="flex-shrink-0">
                     <div className="flex h-10 w-10 items-center justify-center border-2 border-[#BFFF00] text-[#BFFF00] font-black">
@@ -249,11 +367,9 @@ export default function DepositPage() {
                     </div>
                   </div>
                   <div className="flex-1 pt-1">
-                    <h3 className="font-bold mb-1 lowercase">
-                      funds deposited to your yellow channel
-                    </h3>
+                    <h3 className="font-bold mb-1 lowercase">start betting</h3>
                     <p className="text-sm text-muted-foreground lowercase">
-                      ready to use in the marketplace
+                      your hellyhook balance is used for all bets
                     </p>
                   </div>
                 </div>
@@ -261,11 +377,11 @@ export default function DepositPage() {
                 <div className="pt-4 border-t border-border">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground lowercase">
                     <span className="text-[#BFFF00]">*</span>
-                    <span>powered by li.fi protocol</span>
+                    <span>base sepolia testnet</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground lowercase mt-2">
                     <span className="text-[#BFFF00]">*</span>
-                    <span>typical completion: 2-5 minutes</span>
+                    <span>withdraw anytime from hellyhook</span>
                   </div>
                 </div>
               </CardContent>
@@ -279,4 +395,3 @@ export default function DepositPage() {
     </div>
   );
 }
-

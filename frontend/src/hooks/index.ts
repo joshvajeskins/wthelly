@@ -1,3 +1,11 @@
 export { useMarkets, useMarket } from "./use-markets";
 export { useBets, useMarketBets, usePlaceBet } from "./use-bets";
 export { useUser, useChannelState, useWallet } from "./use-user";
+export {
+  useHellyBalance,
+  useMarketData,
+  useUsdcBalance,
+  useUsdcAllowance,
+  useContractAdmin,
+} from "./use-contract-reads";
+export { useOnChainMarkets } from "./use-market-events";
