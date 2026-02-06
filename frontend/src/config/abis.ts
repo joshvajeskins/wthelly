@@ -108,6 +108,49 @@ export const HELLY_HOOK_ABI = [
   },
   {
     type: "function",
+    name: "settleMarketWithProof",
+    inputs: [
+      { name: "marketId", type: "bytes32" },
+      { name: "payoutRecipients", type: "address[]" },
+      { name: "payoutAmounts", type: "uint256[]" },
+      { name: "platformFeeAmount", type: "uint256" },
+      { name: "_pA", type: "uint256[2]" },
+      { name: "_pB", type: "uint256[2][2]" },
+      { name: "_pC", type: "uint256[2]" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "setVerifier",
+    inputs: [{ name: "_verifier", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "setTeeAddress",
+    inputs: [{ name: "_teeAddress", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "verifier",
+    inputs: [],
+    outputs: [{ type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "teeAddress",
+    inputs: [],
+    outputs: [{ type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "getCommitmentHash",
     inputs: [
       { name: "marketId", type: "bytes32" },
@@ -235,6 +278,16 @@ export const HELLY_HOOK_ABI = [
       { name: "marketId", type: "bytes32", indexed: true },
       { name: "bettor", type: "address", indexed: true },
       { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "MarketSettledWithProof",
+    inputs: [
+      { name: "marketId", type: "bytes32", indexed: true },
+      { name: "totalPayout", type: "uint256", indexed: false },
+      { name: "platformFee", type: "uint256", indexed: false },
+      { name: "numPayouts", type: "uint256", indexed: false },
     ],
   },
 ] as const;

@@ -83,6 +83,9 @@ export const EXTERNAL_LINKS = {
   discord: "https://discord.gg/whatthehelly",
 };
 
+// TEE server URL
+export const TEE_SERVER_URL = process.env.NEXT_PUBLIC_TEE_SERVER_URL || "http://localhost:3001";
+
 // Contract addresses (Base Sepolia)
 export const CONTRACTS = {
   hellyHook: "0x218dc19b1e7dab45149a564839fffd2d6ed9e1ce" as `0x${string}`,

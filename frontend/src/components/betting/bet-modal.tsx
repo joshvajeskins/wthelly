@@ -206,11 +206,11 @@ export function BetModal({
             <Lock className="size-4 text-[#BFFF00] mt-0.5 shrink-0" />
             <div className="space-y-1">
               <p className="font-medium text-foreground lowercase">
-                encrypted & gasless
+                encrypted with tee's public key
               </p>
               <p className="text-muted-foreground text-xs lowercase">
-                your bet is encrypted inside a tee. the clearnode routing it
-                cannot read your position. gasless via yellow network.
+                your bet direction is ecies-encrypted with the tee's secp256k1 public key.
+                only the enclave can decrypt it. settlement uses a zk proof — no on-chain reveal needed.
               </p>
             </div>
           </div>

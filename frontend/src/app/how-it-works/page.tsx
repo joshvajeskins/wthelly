@@ -49,10 +49,10 @@ export default function HowItWorksPage() {
                 </div>
                 <div>
                   <h3 className="text-2xl font-black lowercase text-[#BFFF00] mb-3">
-                    private
+                    private (ecies + zk)
                   </h3>
                   <p className="text-muted-foreground lowercase text-lg">
-                    all bets are encrypted inside a tee (trusted execution environment). the clearnode routing your bets literally cannot read them. pool ratios stay hidden until the market resolves. no one knows your position.
+                    your bet direction is ecies-encrypted with the tee's secp256k1 public key — only the enclave can decrypt it. at settlement, the tee computes payouts and generates a groth16 zk proof. the smart contract verifies the proof on-chain without ever seeing individual bet directions.
                   </p>
                 </div>
               </div>
@@ -100,7 +100,7 @@ export default function HowItWorksPage() {
                   custom markets
                 </h3>
                 <p className="text-muted-foreground lowercase">
-                  any yes/no question. sports, politics, entertainment. resolved by admin. your bet is still encrypted in the tee until resolution.
+                  any yes/no question. sports, politics, entertainment. resolved by admin. your bet is ecies-encrypted and sent to the tee. settlement uses zk proofs — your position is never revealed on-chain.
                 </p>
               </CardContent>
             </Card>
@@ -112,11 +112,23 @@ export default function HowItWorksPage() {
           <h2 className="text-2xl md:text-3xl font-black lowercase text-[#BFFF00] mb-6 text-center">
             tech stack
           </h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
             <Card className="border-2 border-border text-center">
               <CardContent className="p-6">
                 <p className="text-lg font-black lowercase text-[#BFFF00]">yellow</p>
                 <p className="text-xs text-muted-foreground lowercase mt-1">state channels</p>
+              </CardContent>
+            </Card>
+            <Card className="border-2 border-border text-center">
+              <CardContent className="p-6">
+                <p className="text-lg font-black lowercase text-[#BFFF00]">tee</p>
+                <p className="text-xs text-muted-foreground lowercase mt-1">marlin oyster</p>
+              </CardContent>
+            </Card>
+            <Card className="border-2 border-border text-center">
+              <CardContent className="p-6">
+                <p className="text-lg font-black lowercase text-[#BFFF00]">zk</p>
+                <p className="text-xs text-muted-foreground lowercase mt-1">groth16 proofs</p>
               </CardContent>
             </Card>
             <Card className="border-2 border-border text-center">

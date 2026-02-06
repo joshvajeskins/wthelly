@@ -204,6 +204,30 @@ export function useSettleMarket() {
   return { settleMarket, hash, isPending, isConfirming, isSuccess, error };
 }
 
+export function useSettleMarketWithProof() {
+  const { writeContractAsync, hash, isPending, isConfirming, isSuccess, error } =
+    useContractWrite();
+
+  const settleMarketWithProof = async (
+    marketId: `0x${string}`,
+    payoutRecipients: `0x${string}`[],
+    payoutAmounts: bigint[],
+    platformFeeAmount: bigint,
+    pA: [bigint, bigint],
+    pB: [[bigint, bigint], [bigint, bigint]],
+    pC: [bigint, bigint]
+  ) => {
+    return writeContractAsync({
+      address: CONTRACTS.hellyHook,
+      abi: HELLY_HOOK_ABI as Abi,
+      functionName: "settleMarketWithProof",
+      args: [marketId, payoutRecipients, payoutAmounts, platformFeeAmount, pA, pB, pC],
+    });
+  };
+
+  return { settleMarketWithProof, hash, isPending, isConfirming, isSuccess, error };
+}
+
 export function useMintTestUsdc() {
   const { writeContractAsync, hash, isPending, isConfirming, isSuccess, error } =
     useContractWrite();

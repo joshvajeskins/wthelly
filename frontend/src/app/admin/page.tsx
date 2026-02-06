@@ -12,13 +12,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useContractAdmin } from "@/hooks/use-contract-reads";
-import { useResolveMarket, useSettleMarket } from "@/hooks/use-contract-writes";
+import { useResolveMarket, useSettleMarket, useSettleMarketWithProof } from "@/hooks/use-contract-writes";
 import { useOnChainMarkets, type OnChainMarket } from "@/hooks/use-market-events";
 import { USDC_DECIMALS } from "@/config/constants";
+import { useTee } from "@/providers/tee-provider";
 
 function MarketAdminCard({ market }: { market: OnChainMarket }) {
   const resolveHook = useResolveMarket();
   const settleHook = useSettleMarket();
+  const settleWithProofHook = useSettleMarketWithProof();
+  const { teeClient, isConnected: teeConnected } = useTee();
+  const [teeSettling, setTeeSettling] = useState(false);
 
   const now = BigInt(Math.floor(Date.now() / 1000));
   const isPastDeadline = now > market.deadline;
@@ -54,6 +58,58 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
     }
   };
 
+  const handleTeeSettle = async () => {
+    if (!teeConnected) {
+      toast.error("TEE server not connected");
+      return;
+    }
+    setTeeSettling(true);
+    try {
+      // Step 1: Tell TEE to compute settlement + ZK proof
+      const settlement = await teeClient.settleMarket(market.id, market.outcome);
+
+      if (!settlement.proof) {
+        toast.error("TEE generated settlement but no ZK proof — use manual settle");
+        return;
+      }
+
+      // Step 2: Submit proof on-chain
+      const recipients = settlement.payouts
+        .filter((p) => BigInt(p.amount) > 0n)
+        .map((p) => p.address as `0x${string}`);
+      const amounts = settlement.payouts
+        .filter((p) => BigInt(p.amount) > 0n)
+        .map((p) => BigInt(p.amount));
+
+      const pA: [bigint, bigint] = [BigInt(settlement.proof.pA[0]), BigInt(settlement.proof.pA[1])];
+      const pB: [[bigint, bigint], [bigint, bigint]] = [
+        [BigInt(settlement.proof.pB[0][0]), BigInt(settlement.proof.pB[0][1])],
+        [BigInt(settlement.proof.pB[1][0]), BigInt(settlement.proof.pB[1][1])],
+      ];
+      const pC: [bigint, bigint] = [BigInt(settlement.proof.pC[0]), BigInt(settlement.proof.pC[1])];
+
+      await settleWithProofHook.settleMarketWithProof(
+        market.id,
+        recipients,
+        amounts,
+        BigInt(settlement.platformFee),
+        pA,
+        pB,
+        pC
+      );
+
+      toast.success("market settled with ZK proof — positions never revealed on-chain");
+    } catch (err: any) {
+      if (err.message?.includes("User rejected")) {
+        toast.error("transaction rejected");
+      } else {
+        toast.error(err.message || "TEE settlement failed");
+      }
+    } finally {
+      setTeeSettling(false);
+    }
+  };
+
   const getStatusBadge = () => {
     if (market.settled)
       return <Badge variant="secondary" className="lowercase">settled</Badge>;
@@ -72,7 +128,10 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
     resolveHook.isPending ||
     resolveHook.isConfirming ||
     settleHook.isPending ||
-    settleHook.isConfirming;
+    settleHook.isConfirming ||
+    settleWithProofHook.isPending ||
+    settleWithProofHook.isConfirming ||
+    teeSettling;
 
   return (
     <Card className="border-2 border-border">
@@ -159,14 +218,27 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
             </>
           )}
           {canSettle && (
-            <Button
-              size="sm"
-              className="flex-1 bg-[#BFFF00] hover:bg-white text-black font-black lowercase"
-              onClick={handleSettle}
-              disabled={isTxPending}
-            >
-              settle market
-            </Button>
+            <>
+              {teeConnected && (
+                <Button
+                  size="sm"
+                  className="flex-1 bg-[#BFFF00] hover:bg-white text-black font-black lowercase"
+                  onClick={handleTeeSettle}
+                  disabled={isTxPending}
+                >
+                  settle with tee + zk
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={teeConnected ? "outline" : "default"}
+                className={teeConnected ? "flex-1 font-black lowercase" : "flex-1 bg-[#BFFF00] hover:bg-white text-black font-black lowercase"}
+                onClick={handleSettle}
+                disabled={isTxPending}
+              >
+                settle (manual)
+              </Button>
+            </>
           )}
         </div>
       </CardContent>

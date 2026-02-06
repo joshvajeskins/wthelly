@@ -4,6 +4,7 @@ import { useState } from "react";
 import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { generateSecret, computeCommitmentHash } from "@/lib/commitment";
 import { useSubmitCommitment } from "./use-contract-writes";
+import { useTee } from "@/providers/tee-provider";
 import { ONE_USDC } from "@/config/constants";
 
 const STORAGE_KEY = "wthelly_secrets";
@@ -55,6 +56,7 @@ export function usePlaceBet() {
   const { address } = usePrivyAccount();
   const { submitCommitment, hash, isPending, isConfirming, isSuccess, error } =
     useSubmitCommitment();
+  const { teeClient, isConnected: teeConnected } = useTee();
   const [isPlacing, setIsPlacing] = useState(false);
 
   const placeBet = async (
@@ -79,7 +81,24 @@ export function usePlaceBet() {
       // Submit commitment on-chain
       await submitCommitment(marketId, commitHash, amount);
 
-      // Store secret in localStorage for later reveal
+      // Send encrypted bet to TEE server (if connected)
+      if (teeConnected) {
+        try {
+          await teeClient.submitEncryptedBet({
+            marketId,
+            isYes,
+            amount: amount.toString(),
+            secret,
+            address,
+          });
+          console.log("[TEE] Encrypted bet submitted to TEE server");
+        } catch (err) {
+          // TEE submission failure is non-fatal — user can still reveal manually
+          console.warn("[TEE] Failed to submit to TEE server (fallback to manual reveal):", err);
+        }
+      }
+
+      // Store secret in localStorage for later reveal (fallback)
       const secrets = loadSecrets();
       secrets.push({
         marketId,
@@ -104,5 +123,6 @@ export function usePlaceBet() {
     isSuccess,
     hash,
     error,
+    teeConnected,
   };
 }
