@@ -4,6 +4,15 @@ pragma solidity ^0.8.26;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+interface IGroth16Verifier {
+    function verifyProof(
+        uint[2] calldata _pA,
+        uint[2][2] calldata _pB,
+        uint[2] calldata _pC,
+        uint[4] calldata _pubSignals
+    ) external view returns (bool);
+}
+
 /// @title HellyHook
 /// @notice Prediction market contract with commit-reveal pattern for private betting
 /// @dev Adapted from PrivateSwapHook's commit-reveal pattern for prediction market use case
@@ -32,6 +41,10 @@ contract HellyHook {
     error InvalidCommitmentHash();
     error ZeroAmount();
     error NothingToSettle();
+    error InvalidProof();
+    error PayoutMismatch();
+    error TotalPoolMismatch();
+    error OnlyTeeOrAdmin();
 
     // =============================================================
     //                           EVENTS
@@ -80,6 +93,13 @@ contract HellyHook {
         uint256 amount
     );
 
+    event MarketSettledWithProof(
+        bytes32 indexed marketId,
+        uint256 totalPayout,
+        uint256 platformFee,
+        uint256 numPayouts
+    );
+
     // =============================================================
     //                           STRUCTS
     // =============================================================
@@ -111,6 +131,8 @@ contract HellyHook {
     address public admin;
     IERC20 public usdc;
     uint256 public platformFeeBps; // 200 = 2%
+    IGroth16Verifier public verifier;
+    address public teeAddress;
 
     /// @notice User balances deposited into the contract
     mapping(address => uint256) public balances;
@@ -380,6 +402,93 @@ contract HellyHook {
             winnerCount,
             loserCount
         );
+    }
+
+    // =============================================================
+    //                  ZK PROOF SETTLEMENT (TEE)
+    // =============================================================
+
+    /// @notice Settle a market using ZK proof from the TEE
+    /// @dev Bet directions are NEVER revealed on-chain — the ZK proof guarantees correctness
+    /// @param marketId The market to settle
+    /// @param payoutRecipients Addresses to receive payouts (order matches TEE computation)
+    /// @param payoutAmounts Payout amount per recipient
+    /// @param platformFeeAmount Computed platform fee
+    /// @param _pA Groth16 proof point A
+    /// @param _pB Groth16 proof point B
+    /// @param _pC Groth16 proof point C
+    function settleMarketWithProof(
+        bytes32 marketId,
+        address[] calldata payoutRecipients,
+        uint256[] calldata payoutAmounts,
+        uint256 platformFeeAmount,
+        uint[2] calldata _pA,
+        uint[2][2] calldata _pB,
+        uint[2] calldata _pC
+    ) external {
+        // Only TEE or admin can submit proof settlements
+        if (msg.sender != teeAddress && msg.sender != admin) revert OnlyTeeOrAdmin();
+        if (!marketExists[marketId]) revert MarketDoesNotExist();
+
+        Market storage market = markets[marketId];
+        if (!market.resolved) revert MarketNotResolved();
+        if (market.settled) revert MarketAlreadySettled();
+        if (market.commitCount == 0) revert NothingToSettle();
+        if (payoutRecipients.length != payoutAmounts.length) revert PayoutMismatch();
+        if (address(verifier) == address(0)) revert InvalidProof();
+
+        // Compute total pool from stored commitments
+        uint256 totalPool = 0;
+        for (uint256 i = 1; i <= market.commitCount; i++) {
+            totalPool += commitments[marketId][i].amount;
+        }
+
+        // Verify conservation: sum(payouts) + fee == totalPool
+        uint256 totalPayouts = 0;
+        for (uint256 i = 0; i < payoutAmounts.length; i++) {
+            totalPayouts += payoutAmounts[i];
+        }
+        if (totalPayouts + platformFeeAmount != totalPool) revert TotalPoolMismatch();
+
+        // Build public signals: [outcome, feeBps, totalPool, platformFee]
+        uint[4] memory pubSignals = [
+            market.outcome ? uint(1) : uint(0),
+            platformFeeBps,
+            totalPool,
+            platformFeeAmount
+        ];
+
+        // Verify ZK proof
+        bool valid = verifier.verifyProof(_pA, _pB, _pC, pubSignals);
+        if (!valid) revert InvalidProof();
+
+        // Mark as settled
+        market.settled = true;
+
+        // Distribute payouts
+        for (uint256 i = 0; i < payoutRecipients.length; i++) {
+            if (payoutAmounts[i] > 0) {
+                balances[payoutRecipients[i]] += payoutAmounts[i];
+                emit PayoutClaimed(marketId, payoutRecipients[i], payoutAmounts[i]);
+            }
+        }
+
+        // Credit platform fee to admin
+        if (platformFeeAmount > 0) {
+            balances[admin] += platformFeeAmount;
+        }
+
+        emit MarketSettledWithProof(marketId, totalPayouts, platformFeeAmount, payoutRecipients.length);
+    }
+
+    /// @notice Set the Groth16 verifier contract address
+    function setVerifier(address _verifier) external onlyAdmin {
+        verifier = IGroth16Verifier(_verifier);
+    }
+
+    /// @notice Set the TEE address authorized to submit proof settlements
+    function setTeeAddress(address _teeAddress) external onlyAdmin {
+        teeAddress = _teeAddress;
     }
 
     // =============================================================
