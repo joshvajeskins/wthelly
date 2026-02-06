@@ -2,12 +2,12 @@
 
 import { useState, useMemo } from "react";
 import { mockMarkets } from "@/lib/mock-data";
-import { Market, MarketCategory, MarketStatus, MarketType } from "@/types";
+import { Market, MarketCategory, MarketStatus, ResolutionType } from "@/types";
 
 export interface MarketFilters {
   category?: MarketCategory | null;
   status?: MarketStatus | null;
-  type?: MarketType | null;
+  resolutionType?: ResolutionType | null;
   search?: string;
 }
 
@@ -34,9 +34,9 @@ export function useMarkets(options: UseMarketsOptions = {}) {
       filtered = filtered.filter((m) => m.status === filters.status);
     }
 
-    // Filter by type
-    if (filters.type) {
-      filtered = filtered.filter((m) => m.type === filters.type);
+    // Filter by resolution type
+    if (filters.resolutionType) {
+      filtered = filtered.filter((m) => m.resolutionType === filters.resolutionType);
     }
 
     // Filter by search

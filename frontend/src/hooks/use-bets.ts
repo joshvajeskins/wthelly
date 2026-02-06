@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { mockBets, mockBetHistory, mockUser } from "@/lib/mock-data";
-import { Bet, BetStatus } from "@/types";
+import { Bet } from "@/types";
 
 export function useBets(userAddress?: string) {
   const address = userAddress || mockUser.address;
@@ -11,7 +11,7 @@ export function useBets(userAddress?: string) {
     return mockBets.filter(
       (b) =>
         b.userAddress === address &&
-        ["pending", "active", "revealing"].includes(b.status)
+        b.status === "active"
     );
   }, [address]);
 
@@ -62,19 +62,16 @@ export function usePlaceBet() {
     setError(null);
 
     try {
-      // Simulate API call
+      // Simulate encrypted bet via TEE
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      // Mock success
       const newBet: Bet = {
         id: `bet-${Date.now()}`,
         marketId: params.marketId,
         userAddress: mockUser.address,
-        commitmentHash: `0x${Math.random().toString(16).slice(2)}`,
         amount: params.amount,
         direction: params.direction,
         status: "active",
-        revealed: false,
         createdAt: new Date(),
       };
 
@@ -93,4 +90,3 @@ export function usePlaceBet() {
     error,
   };
 }
-

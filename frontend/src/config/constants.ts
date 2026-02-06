@@ -3,7 +3,7 @@
 // ============================================
 
 export const APP_NAME = "wthelly";
-export const APP_DESCRIPTION = "Bet on anything. Hidden positions. Maximum aura. No cap fr fr.";
+export const APP_DESCRIPTION = "Bet on anything. Hidden positions. No cap fr fr.";
 
 // Platform fee (Fanum Tax)
 export const PLATFORM_FEE_PERCENT = 2;
@@ -58,35 +58,21 @@ export const CATEGORIES = [
 export const STATUS_MESSAGES = {
   // Success
   betPlaced: "That's bussin ✅ Bet placed fr fr",
-  betRevealed: "Bet revealed! Let's see if you cooked 🍳",
   depositComplete: "Funds secured 💰 Ready to bet",
   winnings: "W DETECTED 🔥 You're actually cracked",
 
   // Error
   insufficientBalance: "You're broke fr 😭 Deposit more",
   betFailed: "Bruh. Something broke 💀 Try again",
-  revealFailed: "Reveal failed 💀 Check your connection",
-  networkError: "Network error 🌐 Not very sigma of you",
+  networkError: "Network error 🌐 Check your connection",
 
   // Loading
   placingBet: "Cooking... 🍳",
-  revealing: "Revealing your position...",
   depositing: "Bridging funds...",
 
   // Info
   marketClosed: "Market closed. No more bets fr",
-  revealWindow: "Reveal window open! Claim your winnings",
-  hiddenBet: "Your position is hidden until resolution",
-};
-
-// Aura thresholds
-export const AURA_THRESHOLDS = {
-  npc: 0,
-  "rizz-apprentice": 100,
-  "aura-farmer": 500,
-  sigma: 1000,
-  gigachad: 2500,
-  "skibidi-god": 5000,
+  encryptedBet: "Your bet is encrypted in the TEE until resolution",
 };
 
 // External links
