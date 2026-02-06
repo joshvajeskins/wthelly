@@ -885,3 +885,4 @@ export function getUserLeaderboard(): UserLeaderboardEntry[] {
       battlesWon: user.wins,
     }));
 }
+
