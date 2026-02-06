@@ -11,35 +11,29 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatRelativeTime } from "@/lib/format";
 import type { Bet, Market, BetStatus } from "@/types";
-import { Eye, EyeOff, TrendingUp, TrendingDown, X, Clock } from "lucide-react";
+import { EyeOff, TrendingUp, TrendingDown, X, Clock, Lock } from "lucide-react";
 
 interface BetCardProps {
   bet: Bet;
   market: Market;
   onCancel?: (betId: string) => void;
-  onReveal?: (betId: string) => void;
 }
 
 const STATUS_CONFIG: Record<
   BetStatus,
   { label: string; variant: "default" | "secondary" | "destructive" | "outline"; color?: string }
 > = {
-  pending: { label: "pending", variant: "secondary" },
   active: { label: "active", variant: "default" },
-  revealing: { label: "reveal now", variant: "default", color: "text-yellow-600 dark:text-yellow-400" },
-  revealed: { label: "revealed", variant: "secondary" },
   won: { label: "won", variant: "default", color: "text-green-600 dark:text-green-400" },
   lost: { label: "lost", variant: "destructive" },
+  settled: { label: "settled", variant: "secondary" },
   cancelled: { label: "cancelled", variant: "outline" },
-  forfeited: { label: "forfeited", variant: "destructive" },
 };
 
-export function BetCard({ bet, market, onCancel, onReveal }: BetCardProps) {
+export function BetCard({ bet, market, onCancel }: BetCardProps) {
   const statusConfig = STATUS_CONFIG[bet.status];
-  // All bets are private by default (ZK commit-reveal), hidden until revealed
-  const isHidden = !bet.revealed && market.status === "open";
+  const isEncrypted = bet.status === "active";
   const showCancel = bet.status === "active" && market.status === "open" && onCancel;
-  const showReveal = bet.status === "revealing" && onReveal;
 
   const getDirectionIcon = () => {
     if (!bet.direction) return null;
@@ -81,16 +75,16 @@ export function BetCard({ bet, market, onCancel, onReveal }: BetCardProps) {
         {/* Position */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {isHidden ? (
-              <>
-                <EyeOff className="size-4" />
-                <span className="lowercase">position hidden</span>
-              </>
-            ) : (
+            {bet.direction ? (
               <>
                 {getDirectionIcon()}
                 <span className="lowercase">position:</span>
                 {getDirectionLabel()}
+              </>
+            ) : (
+              <>
+                <EyeOff className="size-4" />
+                <span className="lowercase">position encrypted</span>
               </>
             )}
           </div>
@@ -118,55 +112,29 @@ export function BetCard({ bet, market, onCancel, onReveal }: BetCardProps) {
           <span>{formatRelativeTime(bet.createdAt)}</span>
         </div>
 
-        {/* Hidden bet warning */}
-        {isHidden && (
-          <div className="rounded-md bg-muted p-2 text-xs text-muted-foreground">
-            your position will be revealed when the market resolves
-          </div>
-        )}
-
-        {/* Reveal window message */}
-        {bet.status === "revealing" && (
-          <div className="rounded-md bg-yellow-500/10 border border-yellow-500/50 p-2 text-xs text-yellow-800 dark:text-yellow-200">
-            market resolved! reveal your bet to claim winnings
-          </div>
-        )}
-
-        {/* Forfeited message */}
-        {bet.status === "forfeited" && (
-          <div className="rounded-md bg-destructive/10 border border-destructive/50 p-2 text-xs text-destructive">
-            reveal window expired. bet forfeited fr fr
+        {/* Encrypted bet info */}
+        {isEncrypted && (
+          <div className="rounded-md bg-muted p-2 text-xs text-muted-foreground flex items-center gap-1.5">
+            <Lock className="size-3" />
+            encrypted in tee — hidden until resolution
           </div>
         )}
       </CardContent>
 
       {/* Actions */}
-      {(showCancel || showReveal) && (
+      {showCancel && (
         <CardFooter className="pt-0 gap-2">
-          {showReveal && (
-            <Button
-              size="sm"
-              className="flex-1"
-              onClick={() => onReveal(bet.id)}
-            >
-              <Eye className="size-4" />
-              reveal bet
-            </Button>
-          )}
-          {showCancel && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              onClick={() => onCancel(bet.id)}
-            >
-              <X className="size-4" />
-              cancel
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1"
+            onClick={() => onCancel(bet.id)}
+          >
+            <X className="size-4" />
+            cancel
+          </Button>
         </CardFooter>
       )}
     </Card>
   );
 }
-

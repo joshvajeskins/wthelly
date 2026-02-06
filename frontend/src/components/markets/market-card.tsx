@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { Market } from "@/types";
-import { getCategoryLabel } from "@/types";
-import { formatCurrency, formatNumber } from "@/lib/format";
+import { getCategoryLabel, getResolutionTypeLabel } from "@/types";
+import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CountdownTimer } from "./countdown-timer";
+import { Lock, Users } from "lucide-react";
 
 interface MarketCardProps {
   market: Market;
@@ -20,15 +21,14 @@ export function MarketCard({ market, className }: MarketCardProps) {
     id,
     question,
     category,
-    totalPool,
-    type,
+    resolutionType,
+    participantCount,
     deadline,
-    betCount,
     status,
   } = market;
 
   const isActive = status === "open";
-  const isClosed = status === "closed" || status === "resolved";
+  const isClosed = status === "closed" || status === "resolved" || status === "settled";
 
   return (
     <Link href={`/markets/${id}`}>
@@ -48,22 +48,22 @@ export function MarketCard({ market, className }: MarketCardProps) {
               {getCategoryLabel(category)}
             </Badge>
 
-            {/* Type Badge */}
+            {/* Resolution Type Badge */}
             <Badge
               className={cn(
                 "text-xs font-bold lowercase",
-                type === "public"
+                resolutionType === "price"
                   ? "bg-[#BFFF00] text-black"
                   : "bg-transparent border-2 border-[#BFFF00] text-[#BFFF00]"
               )}
             >
-              {type}
+              {getResolutionTypeLabel(resolutionType)}
             </Badge>
 
             {/* Status Badge - if closed */}
             {isClosed && (
               <Badge className="text-xs font-bold lowercase ml-auto bg-red-500 text-white">
-                {status === "resolved" ? "done" : "closed"}
+                {status === "resolved" ? "done" : status}
               </Badge>
             )}
           </div>
@@ -75,22 +75,20 @@ export function MarketCard({ market, className }: MarketCardProps) {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {/* Pool Display */}
+          {/* Encrypted Pool Display */}
           <div className="p-3 border-2 border-border group-hover:border-[#BFFF00] transition-colors">
-            <span className="text-xs text-muted-foreground font-bold lowercase block mb-1">
-              pool
-            </span>
-            <span className="text-2xl font-black text-[#BFFF00]">
-              {formatCurrency(totalPool, { compact: true })}
+            <span className="text-xs text-muted-foreground font-bold lowercase block mb-1 flex items-center gap-1">
+              <Lock className="size-3" />
+              pool hidden (encrypted in tee)
             </span>
           </div>
 
           {/* Stats Row */}
           <div className="flex items-center justify-between text-sm">
-            <div>
-              <span className="text-xs text-muted-foreground font-bold lowercase block">bets</span>
+            <div className="flex items-center gap-1.5">
+              <Users className="size-4 text-muted-foreground" />
               <span className="font-black text-foreground">
-                {formatNumber(betCount)}
+                {formatNumber(participantCount)} skibidis
               </span>
             </div>
 
@@ -113,4 +111,3 @@ export function MarketCard({ market, className }: MarketCardProps) {
     </Link>
   );
 }
-

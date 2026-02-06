@@ -14,7 +14,7 @@ import { Toaster } from "sonner";
 export const metadata: Metadata = {
   title: "wthelly | Private Betting Platform",
   description:
-    "Bet on anything. Hidden positions. Maximum aura. No cap fr fr. Private betting with Yellow Network, Uniswap v4, and LI.FI.",
+    "Bet on anything. Hidden positions. No cap fr fr. Private betting with Yellow Network, Uniswap v4, and LI.FI.",
   keywords: [
     "prediction market",
     "betting",

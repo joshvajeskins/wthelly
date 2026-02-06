@@ -23,8 +23,8 @@ export default function MarketsPage() {
         return false;
       }
 
-      // Type filter
-      if (filters.type && filters.type !== "all" && market.type !== filters.type) {
+      // Resolution type filter
+      if (filters.resolutionType && filters.resolutionType !== "all" && market.resolutionType !== filters.resolutionType) {
         return false;
       }
 

@@ -52,7 +52,7 @@ export default function HowItWorksPage() {
                     private
                   </h3>
                   <p className="text-muted-foreground lowercase text-lg">
-                    cap mode keeps your bets hidden until resolution. maximum sigma energy. no one knows your position until the market resolves. built with commit-reveal scheme on uniswap v4 hooks.
+                    all bets are encrypted inside a tee (trusted execution environment). the clearnode routing your bets literally cannot read them. pool ratios stay hidden until the market resolves. no one knows your position.
                   </p>
                 </div>
               </div>
@@ -87,20 +87,20 @@ export default function HowItWorksPage() {
             <Card className="border-2 border-border">
               <CardContent className="p-6">
                 <h3 className="text-xl font-black lowercase text-foreground mb-2">
-                  no cap mode
+                  price markets
                 </h3>
                 <p className="text-muted-foreground lowercase">
-                  your bet is visible to everyone. classic prediction market vibes. good for when you want to flex your position.
+                  auto-resolved by uniswap v4 hooks. the pool is the oracle. when the price target hits, the market resolves instantly. trustless fr.
                 </p>
               </CardContent>
             </Card>
             <Card className="border-2 border-border">
               <CardContent className="p-6">
                 <h3 className="text-xl font-black lowercase text-foreground mb-2">
-                  cap mode
+                  custom markets
                 </h3>
                 <p className="text-muted-foreground lowercase">
-                  your bet is hidden until the market resolves. only you know your position. reveal to claim winnings. gigachad energy.
+                  any yes/no question. sports, politics, entertainment. resolved by admin. your bet is still encrypted in the tee until resolution.
                 </p>
               </CardContent>
             </Card>
@@ -149,4 +149,3 @@ export default function HowItWorksPage() {
     </div>
   );
 }
-

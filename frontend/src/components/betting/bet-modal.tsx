@@ -11,20 +11,15 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { QuickAmounts } from "./quick-amounts";
-import {
-  formatCurrency,
-  calculatePayout,
-  formatOdds,
-} from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 import {
   MIN_BET_AMOUNT,
   MAX_BET_AMOUNT,
   STATUS_MESSAGES,
 } from "@/config/constants";
 import type { Market, BetDirection } from "@/types";
-import { AlertCircle, TrendingUp, Loader2 } from "lucide-react";
+import { AlertCircle, Lock, Loader2 } from "lucide-react";
 
 interface BetModalProps {
   open: boolean;
@@ -47,11 +42,6 @@ export function BetModal({
   const [error, setError] = React.useState<string>("");
 
   const amountNum = parseFloat(amount) || 0;
-  const odds = formatOdds(market.yesPool, market.noPool);
-  const potentialPayout = direction
-    ? calculatePayout(amountNum, direction, market.yesPool, market.noPool)
-    : 0;
-  const potentialWinnings = potentialPayout - amountNum;
 
   const canPlaceBet =
     direction &&
@@ -144,7 +134,6 @@ export function BetModal({
                 onClick={() => setDirection("yes")}
               >
                 <span className="text-lg font-bold lowercase">yes</span>
-                <span className="text-xs opacity-75 lowercase">{odds.yes} odds</span>
               </Button>
               <Button
                 variant={direction === "no" ? "default" : "outline"}
@@ -153,7 +142,6 @@ export function BetModal({
                 onClick={() => setDirection("no")}
               >
                 <span className="text-lg font-bold lowercase">no</span>
-                <span className="text-xs opacity-75 lowercase">{odds.no} odds</span>
               </Button>
             </div>
           </div>
@@ -197,43 +185,32 @@ export function BetModal({
             disabled={isPlacing}
           />
 
-          {/* Potential Payout */}
+          {/* Bet Summary */}
           {direction && amountNum > 0 && (
             <div className="rounded-lg bg-muted p-4 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground lowercase">your bet</span>
                 <span className="font-medium">
-                  {formatCurrency(amountNum)}
+                  {formatCurrency(amountNum)} on {direction.toUpperCase()}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground lowercase">
-                  potential winnings
-                </span>
-                <span className="font-medium text-green-600 dark:text-green-400 flex items-center gap-1">
-                  <TrendingUp className="size-3" />
-                  +{formatCurrency(potentialWinnings)}
-                </span>
-              </div>
-              <div className="border-t pt-2 flex items-center justify-between">
-                <span className="font-medium lowercase">total payout</span>
-                <span className="font-bold text-lg">
-                  {formatCurrency(potentialPayout)}
-                </span>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Lock className="size-3" />
+                payout calculated at resolution (pool ratios hidden)
               </div>
             </div>
           )}
 
-          {/* Private Bet Warning - All bets are private by default */}
+          {/* TEE Encryption Notice */}
           <div className="flex items-start gap-2 rounded-lg border border-[#BFFF00]/50 bg-[#BFFF00]/10 p-3 text-sm">
-            <AlertCircle className="size-4 text-[#BFFF00] mt-0.5 shrink-0" />
+            <Lock className="size-4 text-[#BFFF00] mt-0.5 shrink-0" />
             <div className="space-y-1">
               <p className="font-medium text-foreground lowercase">
-                private bet mode
+                encrypted & gasless
               </p>
               <p className="text-muted-foreground text-xs lowercase">
-                all bets are private by default (zk commit-reveal). keep your
-                secret safe fr fr.
+                your bet is encrypted inside a tee. the clearnode routing it
+                cannot read your position. gasless via yellow network.
               </p>
             </div>
           </div>
@@ -274,4 +251,3 @@ export function BetModal({
     </Dialog>
   );
 }
-

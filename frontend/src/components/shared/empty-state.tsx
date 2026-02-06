@@ -99,7 +99,7 @@ export function NoActiveBets({ action, className }: PresetEmptyStateProps) {
     <EmptyState
       icon="trending"
       title="No Active Bets"
-      description="You haven't placed any bets yet. Time to get in the game and farm some aura fr fr."
+      description="You haven't placed any bets yet. Time to get in the game fr fr."
       action={action}
       className={className}
     />

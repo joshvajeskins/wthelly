@@ -26,7 +26,7 @@ export default function Home() {
                   wthelly
                 </h1>
                 <p className="text-lg md:text-xl text-muted-foreground max-w-xl lowercase tracking-wide">
-                  bet on anything. hidden positions. maximum aura. no cap fr fr.
+                  bet on anything. hidden positions. encrypted in tee. no cap fr fr.
                 </p>
                 <div className="flex justify-center lg:justify-start">
                   <Link href="/markets">

@@ -4,9 +4,8 @@ import { useState } from "react";
 import {
   MarketCategory,
   MarketStatus,
-  MarketType,
+  ResolutionType,
   SortOption,
-  getCategoryLabel,
 } from "@/types";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -18,12 +17,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Search, X, Filter } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 export interface MarketFiltersState {
   category?: MarketCategory | "all";
   status?: MarketStatus | "all";
-  type?: MarketType | "all";
+  resolutionType?: ResolutionType | "all";
   search?: string;
   sort?: SortOption;
 }
@@ -48,18 +47,18 @@ const statuses: Array<{ value: MarketStatus | "all"; label: string }> = [
   { value: "open", label: "Open" },
   { value: "closed", label: "Closed" },
   { value: "resolved", label: "Resolved" },
+  { value: "settled", label: "Settled" },
 ];
 
-const types: Array<{ value: MarketType | "all"; label: string }> = [
+const resolutionTypes: Array<{ value: ResolutionType | "all"; label: string }> = [
   { value: "all", label: "all types" },
-  { value: "public", label: "public" },
-  { value: "private", label: "private" },
+  { value: "price", label: "price market" },
+  { value: "admin", label: "admin resolved" },
 ];
 
 const sortOptions: Array<{ value: SortOption; label: string }> = [
   { value: "newest", label: "Newest First" },
   { value: "deadline", label: "Ending Soon" },
-  { value: "volume", label: "Highest Volume" },
   { value: "popular", label: "Most Popular" },
 ];
 
@@ -73,7 +72,7 @@ export function MarketFilters({
   const hasActiveFilters =
     (filters.category && filters.category !== "all") ||
     (filters.status && filters.status !== "all") ||
-    (filters.type && filters.type !== "all") ||
+    (filters.resolutionType && filters.resolutionType !== "all") ||
     filters.search;
 
   const handleSearchChange = (value: string) => {
@@ -86,7 +85,7 @@ export function MarketFilters({
     onFiltersChange({
       category: "all",
       status: "all",
-      type: "all",
+      resolutionType: "all",
       search: undefined,
       sort: filters.sort || "newest",
     });
@@ -160,13 +159,13 @@ export function MarketFilters({
           </SelectContent>
         </Select>
 
-        {/* Type Filter */}
+        {/* Resolution Type Filter */}
         <Select
-          value={filters.type || "all"}
+          value={filters.resolutionType || "all"}
           onValueChange={(value) =>
             onFiltersChange({
               ...filters,
-              type: value === "all" ? undefined : (value as MarketType),
+              resolutionType: value === "all" ? undefined : (value as ResolutionType),
             })
           }
         >
@@ -174,7 +173,7 @@ export function MarketFilters({
             <SelectValue placeholder="type" />
           </SelectTrigger>
           <SelectContent>
-            {types.map((type) => (
+            {resolutionTypes.map((type) => (
               <SelectItem key={type.value} value={type.value}>
                 {type.label}
               </SelectItem>
@@ -220,4 +219,3 @@ export function MarketFilters({
     </div>
   );
 }
-

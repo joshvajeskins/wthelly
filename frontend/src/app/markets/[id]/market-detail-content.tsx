@@ -4,12 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { CountdownTimer, MarketStats } from "@/components/markets";
 import { BetCard, QuickAmounts } from "@/components/betting";
-import { formatCurrency, calculatePayout } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Lock } from "lucide-react";
 import type { Market, Bet } from "@/types";
+import { getResolutionTypeLabel } from "@/types";
 
 interface MarketDetailContentProps {
   market: Market;
@@ -27,20 +29,12 @@ export function MarketDetailContent({
   const [isPlacingBet, setIsPlacingBet] = useState(false);
 
   const numericAmount = parseFloat(amount) || 0;
-  const potentialPayout = selectedOption
-    ? calculatePayout(
-        numericAmount,
-        selectedOption,
-        market.yesPool,
-        market.noPool
-      )
-    : 0;
 
   const handlePlaceBet = async () => {
     if (!selectedOption || numericAmount <= 0) return;
 
     setIsPlacingBet(true);
-    // TODO: Implement actual bet placement logic
+    // TODO: Implement actual bet placement via TEE
     setTimeout(() => {
       alert(
         `bet placed: ${selectedOption} with ${formatCurrency(numericAmount)}`
@@ -81,15 +75,19 @@ export function MarketDetailContent({
                 <div className="flex flex-wrap gap-2">
                   <Badge
                     className={`text-xs font-bold lowercase ${
-                      market.type === "public"
+                      market.resolutionType === "price"
                         ? "bg-[#BFFF00] text-black"
                         : "bg-transparent border-2 border-[#BFFF00] text-[#BFFF00]"
                     }`}
                   >
-                    {market.type}
+                    {getResolutionTypeLabel(market.resolutionType)}
                   </Badge>
                   <Badge variant="secondary" className="text-xs font-bold lowercase">
                     {market.category}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs font-bold lowercase flex items-center gap-1">
+                    <Lock className="size-3" />
+                    encrypted
                   </Badge>
                 </div>
               </div>
@@ -162,7 +160,7 @@ export function MarketDetailContent({
                 <>
                   {/* Amount Input */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold lowercase text-muted-foreground">amount (usd)</label>
+                    <label className="text-xs font-bold lowercase text-muted-foreground">amount (usdc)</label>
                     <Input
                       type="number"
                       placeholder="0.00"
@@ -177,21 +175,15 @@ export function MarketDetailContent({
                   {/* Quick Amounts */}
                   <QuickAmounts onSelect={handleQuickAmount} />
 
-                  {/* Potential Payout */}
+                  {/* Encrypted Notice */}
                   {numericAmount > 0 && (
                     <div className="border-2 border-border p-4 space-y-1">
-                      <p className="text-xs font-bold text-muted-foreground lowercase">
-                        potential payout
-                      </p>
-                      <p className="text-2xl font-black text-[#BFFF00]">
-                        {formatCurrency(potentialPayout)}
+                      <p className="text-xs font-bold text-muted-foreground lowercase flex items-center gap-1">
+                        <Lock className="size-3" />
+                        bet encrypted in tee
                       </p>
                       <p className="text-xs text-muted-foreground lowercase">
-                        {potentialPayout > numericAmount
-                          ? `+${formatCurrency(
-                              potentialPayout - numericAmount
-                            )} profit`
-                          : ""}
+                        payout calculated at market resolution. pool ratios hidden.
                       </p>
                     </div>
                   )}
@@ -222,4 +214,3 @@ export function MarketDetailContent({
     </main>
   );
 }
-

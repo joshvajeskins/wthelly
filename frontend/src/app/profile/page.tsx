@@ -2,9 +2,9 @@ import Link from "next/link"
 import { Header } from "@/components/layout/header"
 import { Footer } from "@/components/layout/footer"
 import { MobileNav } from "@/components/layout/mobile-nav"
-import { AuraBadge, EmptyState } from "@/components/shared"
+import { EmptyState } from "@/components/shared"
 import { BetCard } from "@/components/betting"
-import { mockUser, mockBets, mockBetHistory, getMarketById, getUserSquad } from "@/lib/mock-data"
+import { mockUser, mockBets, mockBetHistory, getMarketById } from "@/lib/mock-data"
 import { formatCurrency, formatAddress } from "@/lib/format"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button"
 export default function ProfilePage() {
   // Filter active bets for the current user
   const userActiveBets = mockBets.filter(bet => bet.userAddress === mockUser.address)
-  const userSquad = getUserSquad(mockUser.address)
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -34,80 +33,21 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-3">
-                  <div className="flex justify-center md:justify-end">
-                    <AuraBadge aura={mockUser.aura} size="lg" />
-                  </div>
-                  <Card className="border-2 border-border">
-                    <CardContent className="p-3">
-                      <div>
-                        <p className="text-xs text-muted-foreground lowercase font-bold">channel balance</p>
-                        <p className="text-lg font-black text-[#BFFF00]">{formatCurrency(mockUser.channelBalance)}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
+                <Card className="border-2 border-border">
+                  <CardContent className="p-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground lowercase font-bold">channel balance</p>
+                      <p className="text-lg font-black text-[#BFFF00]">{formatCurrency(mockUser.channelBalance)}</p>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Squad Section */}
-        <div className="mb-8">
-          {userSquad ? (
-            <Card className="border-2 border-[#BFFF00]">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-xs text-muted-foreground lowercase font-bold mb-1">your squad</p>
-                    <p className="text-xl font-black lowercase text-foreground">{userSquad.name}</p>
-                    <p className="text-sm text-muted-foreground lowercase">
-                      {userSquad.members.length} members • {userSquad.aura} aura • {userSquad.wins}w/{userSquad.losses}l
-                    </p>
-                  </div>
-                  <Link href={`/squads/${userSquad.id}`}>
-                    <Button className="bg-[#BFFF00] hover:bg-white text-black font-black lowercase">
-                      view squad
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="border-2 border-border">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-lg font-black lowercase text-foreground">no squad yet</p>
-                    <p className="text-sm text-muted-foreground lowercase">join a squad to compete in sigma battles</p>
-                  </div>
-                  <Link href="/squads">
-                    <Button className="bg-[#BFFF00] hover:bg-white text-black font-black lowercase">
-                      find squad
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <Card className="border-2 border-border hover:border-[#BFFF00] transition-colors">
-            <CardContent className="p-6">
-              <p className="text-xs text-muted-foreground lowercase font-bold mb-2">total aura</p>
-              <p className="text-3xl font-black text-[#BFFF00]">{mockUser.aura}</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-2 border-border hover:border-[#BFFF00] transition-colors">
-            <CardContent className="p-6">
-              <p className="text-xs text-muted-foreground lowercase font-bold mb-2">rizz</p>
-              <p className="text-3xl font-black text-[#BFFF00]">{mockUser.rizz}</p>
-            </CardContent>
-          </Card>
-
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <Card className="border-2 border-border hover:border-[#BFFF00] transition-colors">
             <CardContent className="p-6">
               <p className="text-xs text-muted-foreground lowercase font-bold mb-2">win rate</p>
@@ -124,6 +64,13 @@ export default function ProfilePage() {
 
           <Card className="border-2 border-border hover:border-[#BFFF00] transition-colors">
             <CardContent className="p-6">
+              <p className="text-xs text-muted-foreground lowercase font-bold mb-2">total losses</p>
+              <p className="text-3xl font-black text-[#BFFF00]">{mockUser.losses}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-border hover:border-[#BFFF00] transition-colors">
+            <CardContent className="p-6">
               <p className="text-xs text-muted-foreground lowercase font-bold mb-2">total wagered</p>
               <p className="text-3xl font-black text-[#BFFF00]">{formatCurrency(mockUser.totalWagered)}</p>
             </CardContent>
@@ -133,7 +80,7 @@ export default function ProfilePage() {
         {/* Active Bets Section */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl md:text-2xl font-black lowercase text-[#BFFF00]">active bets (no cap)</h2>
+            <h2 className="text-xl md:text-2xl font-black lowercase text-[#BFFF00]">active bets</h2>
             <span className="px-3 py-1 border-2 border-[#BFFF00] text-[#BFFF00] text-sm font-bold lowercase">
               {userActiveBets.length} active
             </span>
@@ -194,4 +141,3 @@ export default function ProfilePage() {
     </div>
   )
 }
-
