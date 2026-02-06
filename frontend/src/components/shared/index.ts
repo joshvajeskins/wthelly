@@ -8,4 +8,3 @@ export {
   InlineLoader,
 } from "./loading";
 export { EmptyState } from "./empty-state";
-export { AuraBadge } from "./aura-badge";
