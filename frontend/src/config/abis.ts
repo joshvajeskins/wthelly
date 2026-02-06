@@ -1,0 +1,304 @@
+export const HELLY_HOOK_ABI = [
+  {
+    type: "constructor",
+    inputs: [
+      { name: "_usdc", type: "address" },
+      { name: "_platformFeeBps", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "admin",
+    inputs: [],
+    outputs: [{ type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "usdc",
+    inputs: [],
+    outputs: [{ type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "platformFeeBps",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "balances",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "marketExists",
+    inputs: [{ name: "", type: "bytes32" }],
+    outputs: [{ type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "createMarket",
+    inputs: [
+      { name: "marketId", type: "bytes32" },
+      { name: "question", type: "string" },
+      { name: "deadline", type: "uint256" },
+      { name: "revealWindow", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "resolveMarket",
+    inputs: [
+      { name: "marketId", type: "bytes32" },
+      { name: "outcome", type: "bool" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "deposit",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "submitCommitment",
+    inputs: [
+      { name: "marketId", type: "bytes32" },
+      { name: "commitHash", type: "bytes32" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "revealBet",
+    inputs: [
+      { name: "marketId", type: "bytes32" },
+      { name: "isYes", type: "bool" },
+      { name: "secret", type: "bytes32" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "settleMarket",
+    inputs: [{ name: "marketId", type: "bytes32" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getCommitmentHash",
+    inputs: [
+      { name: "marketId", type: "bytes32" },
+      { name: "isYes", type: "bool" },
+      { name: "amount", type: "uint256" },
+      { name: "secret", type: "bytes32" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [{ type: "bytes32" }],
+    stateMutability: "pure",
+  },
+  {
+    type: "function",
+    name: "getMarket",
+    inputs: [{ name: "marketId", type: "bytes32" }],
+    outputs: [
+      { name: "question", type: "string" },
+      { name: "deadline", type: "uint256" },
+      { name: "revealDeadline", type: "uint256" },
+      { name: "resolved", type: "bool" },
+      { name: "outcome", type: "bool" },
+      { name: "totalYes", type: "uint256" },
+      { name: "totalNo", type: "uint256" },
+      { name: "settled", type: "bool" },
+      { name: "commitCount", type: "uint256" },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getCommitment",
+    inputs: [
+      { name: "marketId", type: "bytes32" },
+      { name: "index", type: "uint256" },
+    ],
+    outputs: [
+      { name: "commitHash", type: "bytes32" },
+      { name: "amount", type: "uint256" },
+      { name: "bettor", type: "address" },
+      { name: "revealed", type: "bool" },
+      { name: "isYes", type: "bool" },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getBettorCommitIndex",
+    inputs: [
+      { name: "marketId", type: "bytes32" },
+      { name: "bettor", type: "address" },
+    ],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+  },
+  // Events
+  {
+    type: "event",
+    name: "MarketCreated",
+    inputs: [
+      { name: "marketId", type: "bytes32", indexed: true },
+      { name: "question", type: "string", indexed: false },
+      { name: "deadline", type: "uint256", indexed: false },
+      { name: "revealDeadline", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "MarketResolved",
+    inputs: [
+      { name: "marketId", type: "bytes32", indexed: true },
+      { name: "outcome", type: "bool", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "MarketSettled",
+    inputs: [
+      { name: "marketId", type: "bytes32", indexed: true },
+      { name: "totalPayout", type: "uint256", indexed: false },
+      { name: "platformFee", type: "uint256", indexed: false },
+      { name: "winners", type: "uint256", indexed: false },
+      { name: "losers", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "Deposited",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "Withdrawn",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "CommitmentSubmitted",
+    inputs: [
+      { name: "marketId", type: "bytes32", indexed: true },
+      { name: "bettor", type: "address", indexed: true },
+      { name: "commitHash", type: "bytes32", indexed: false },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "BetRevealed",
+    inputs: [
+      { name: "marketId", type: "bytes32", indexed: true },
+      { name: "bettor", type: "address", indexed: true },
+      { name: "isYes", type: "bool", indexed: false },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "PayoutClaimed",
+    inputs: [
+      { name: "marketId", type: "bytes32", indexed: true },
+      { name: "bettor", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
+export const ERC20_ABI = [
+  {
+    type: "function",
+    name: "mint",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "approve",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ type: "bool" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "allowance",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "transfer",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ type: "bool" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "decimals",
+    inputs: [],
+    outputs: [{ type: "uint8" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "symbol",
+    inputs: [],
+    outputs: [{ type: "string" }],
+    stateMutability: "view",
+  },
+] as const;
