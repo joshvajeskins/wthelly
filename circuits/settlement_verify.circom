@@ -26,7 +26,6 @@ template SettlementVerify(MAX_BETS) {
     sumActive === numBets;
 
     // No gaps: if active[i] = 0 then active[i+1] must also be 0
-    // Equivalently: active[i+1] * (1 - active[i]) === 0 for i in [0, MAX_BETS-2]
     for (var i = 0; i < MAX_BETS - 1; i++) {
         active[i + 1] * (1 - active[i]) === 0;
     }
@@ -44,25 +43,28 @@ template SettlementVerify(MAX_BETS) {
     }
 
     // ---- Constraint 4: Pool classification ----
-    // Compute winner and loser pools
-    var winnerPool = 0;
-    var loserPool = 0;
+    // isWinner[i] = 1 when direction matches outcome
+    // isWinner = 1 - direction - outcome + 2*direction*outcome
+    signal isWinner[MAX_BETS];
+
+    // Intermediate signals for quadratic products (required for R1CS)
+    signal winAmount[MAX_BETS];
+    signal loseAmount[MAX_BETS];
+
     var sumPayouts = 0;
     var sumAmounts = 0;
+    var winnerPoolVar = 0;
+    var loserPoolVar = 0;
 
-    // isWinner[i] = 1 if bet is on winning side
-    signal isWinner[MAX_BETS];
     for (var i = 0; i < MAX_BETS; i++) {
-        // isWinner = 1 when direction matches outcome
-        // direction=1,outcome=1 -> match(1). direction=0,outcome=0 -> match(1)
-        // direction=1,outcome=0 -> no match(0). direction=0,outcome=1 -> no match(0)
-        // isWinner = 1 - (direction - outcome)^2 = 1 - direction^2 + 2*direction*outcome - outcome^2
-        // Since direction and outcome are binary: direction^2=direction, outcome^2=outcome
-        // isWinner = 1 - direction - outcome + 2*direction*outcome
         isWinner[i] <== 1 - directions[i] - outcome + 2 * directions[i] * outcome;
 
-        winnerPool += isWinner[i] * amounts[i];
-        loserPool += (1 - isWinner[i]) * amounts[i];
+        // Capture quadratic products as intermediate signals
+        winAmount[i] <== isWinner[i] * amounts[i];
+        loseAmount[i] <== amounts[i] - winAmount[i];
+
+        winnerPoolVar += winAmount[i];
+        loserPoolVar += loseAmount[i];
         sumPayouts += payouts[i];
         sumAmounts += amounts[i];
     }
@@ -71,11 +73,12 @@ template SettlementVerify(MAX_BETS) {
     sumAmounts === totalPool;
 
     // ---- Constraint 6: Fee correctness ----
-    // platformFee * 10000 === loserPool * feeBps
-    platformFee * 10000 === loserPool * feeBps;
+    // Need loserPool as a signal for the quadratic constraint
+    signal loserPoolSig;
+    loserPoolSig <== loserPoolVar;
+    loserPoolSig * feeBps === platformFee * 10000;
 
     // ---- Constraint 7: Conservation ----
-    // sum(payouts) + platformFee === totalPool
     sumPayouts + platformFee === totalPool;
 
     // ---- Constraint 8: Losers get zero payout ----
@@ -84,12 +87,17 @@ template SettlementVerify(MAX_BETS) {
     }
 
     // ---- Constraint 9: Proportional winner payouts ----
-    // For any two slots i,j: payouts[i] * amounts[j] === payouts[j] * amounts[i]
-    // For non-winners, payouts are already constrained to 0, so the equation
-    // is trivially 0===0. We can check ALL pairs without filtering.
+    // Use winAmount instead of amounts so loser slots (winAmount=0) don't break the check.
+    // Winner i, Winner j: payouts[i]*winAmount[j] === payouts[j]*winAmount[i] ✓
+    // Winner i, Loser j:  payouts[i]*0 === 0*winAmount[i] → 0===0 ✓
+    // Loser i, Loser j:   0*0 === 0*0 → 0===0 ✓
+    signal cross[MAX_BETS * (MAX_BETS - 1) / 2];
+    var pairIdx = 0;
     for (var i = 0; i < MAX_BETS; i++) {
         for (var j = i + 1; j < MAX_BETS; j++) {
-            payouts[i] * amounts[j] === payouts[j] * amounts[i];
+            cross[pairIdx] <== payouts[i] * winAmount[j];
+            cross[pairIdx] === payouts[j] * winAmount[i];
+            pairIdx++;
         }
     }
 }
