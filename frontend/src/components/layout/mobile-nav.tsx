@@ -2,7 +2,9 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useAccount } from "wagmi"
 import { cn } from "@/lib/utils"
+import { useContractAdmin } from "@/hooks/use-contract-reads"
 
 const navItems = [
   { href: "/", label: "home" },
@@ -13,11 +15,21 @@ const navItems = [
 
 export function MobileNav() {
   const pathname = usePathname()
+  const { address, isConnected } = useAccount()
+  const { data: adminAddress } = useContractAdmin()
+  const isAdmin =
+    isConnected &&
+    adminAddress &&
+    address?.toLowerCase() === (adminAddress as string)?.toLowerCase()
+
+  const allNavItems = isAdmin
+    ? [...navItems, { href: "/admin", label: "admin" }]
+    : navItems
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-background border-t-2 border-border pb-safe">
       <div className="flex items-center justify-around h-14">
-        {navItems.map((item) => {
+        {allNavItems.map((item) => {
           const isActive = pathname === item.href
 
           return (
@@ -29,7 +41,8 @@ export function MobileNav() {
                 "text-xs font-black lowercase tracking-wider",
                 isActive
                   ? "text-[#BFFF00]"
-                  : "text-muted-foreground"
+                  : "text-muted-foreground",
+                item.label === "admin" && !isActive && "text-red-400"
               )}
             >
               {item.label}

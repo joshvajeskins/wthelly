@@ -2,9 +2,12 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useAccount } from "wagmi"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ConnectButton } from "@rainbow-me/rainbowkit"
+import { useClearnode } from "@/providers/clearnode-provider"
+import { useContractAdmin } from "@/hooks/use-contract-reads"
 
 const navLinks = [
   { href: "/", label: "home" },
@@ -80,6 +83,17 @@ function WthellyConnectButton() {
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
+  const { isConnected: clearnodeConnected, isAuthenticated: clearnodeAuth } = useClearnode()
+  const { address, isConnected: walletConnected } = useAccount()
+  const { data: adminAddress } = useContractAdmin()
+  const isAdmin =
+    walletConnected &&
+    adminAddress &&
+    address?.toLowerCase() === (adminAddress as string)?.toLowerCase()
+
+  const allNavLinks = isAdmin
+    ? [...navLinks, { href: "/admin", label: "admin" }]
+    : navLinks
 
   return (
     <header className="sticky top-0 z-50 w-full bg-background/90 backdrop-blur-sm border-b-2 border-border">
@@ -94,13 +108,14 @@ export function Header() {
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-1">
-            {navLinks.map((link) => (
+            {allNavLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 className={cn(
                   "px-4 py-2 text-sm font-bold lowercase tracking-wider transition-colors",
-                  "text-muted-foreground hover:text-[#BFFF00]"
+                  "text-muted-foreground hover:text-[#BFFF00]",
+                  link.label === "admin" && "text-red-400 hover:text-red-300"
                 )}
               >
                 {link.label}
@@ -108,8 +123,27 @@ export function Header() {
             ))}
           </nav>
 
-          {/* Desktop Wallet Button */}
-          <div className="hidden md:flex items-center">
+          {/* Desktop Wallet Button + Clearnode Status */}
+          <div className="hidden md:flex items-center gap-2">
+            {walletConnected && (
+              <span
+                className={cn(
+                  "w-2 h-2 rounded-full",
+                  clearnodeAuth
+                    ? "bg-green-500"
+                    : clearnodeConnected
+                      ? "bg-yellow-500"
+                      : "bg-red-500"
+                )}
+                title={
+                  clearnodeAuth
+                    ? "clearnode: authenticated"
+                    : clearnodeConnected
+                      ? "clearnode: connected"
+                      : "clearnode: disconnected"
+                }
+              />
+            )}
             <WthellyConnectButton />
           </div>
 
@@ -128,13 +162,14 @@ export function Header() {
       {mobileMenuOpen && (
         <div className="md:hidden border-t-2 border-border bg-background">
           <nav className="container-app py-4 flex flex-col space-y-2">
-            {navLinks.map((link) => (
+            {allNavLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 className={cn(
                   "px-4 py-3 text-sm font-bold lowercase tracking-wider transition-colors",
-                  "text-muted-foreground hover:text-[#BFFF00]"
+                  "text-muted-foreground hover:text-[#BFFF00]",
+                  link.label === "admin" && "text-red-400 hover:text-red-300"
                 )}
                 onClick={() => setMobileMenuOpen(false)}
               >
