@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  wthelly-tee:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - TEE_MODE=${TEE_MODE:-enclave}
+      - ENCLAVE_KEY_PATH=/app/ecdsa.sec
+      - PORT=3001
+      - RPC_URL=${RPC_URL:-https://sepolia.base.org}
+      - CHAIN_ID=${CHAIN_ID:-84532}
+      - HELLY_HOOK_ADDRESS=${HELLY_HOOK_ADDRESS:-0x218dc19b1e7dab45149a564839fffd2d6ed9e1ce}
+      - FEE_BPS=${FEE_BPS:-200}
+    volumes:
+      - ./ecdsa.sec:/app/ecdsa.sec:ro
+    restart: unless-stopped

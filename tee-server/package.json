@@ -1,0 +1,29 @@
+{
+  "name": "wthelly-tee-server",
+  "version": "1.0.0",
+  "description": "TEE server for wthelly prediction market — encrypted bets + ZK settlement",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.8.1",
+    "@noble/hashes": "^1.7.1",
+    "@noble/ciphers": "^1.2.1",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "viem": "^2.23.2",
+    "snarkjs": "^0.7.5",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
