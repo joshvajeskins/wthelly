@@ -216,10 +216,11 @@ async function main() {
   const mockUSDC = usdcReceipt.contractAddress!;
   log("0", `MockUSDC: ${mockUSDC}`);
 
-  // Deploy HellyHook
+  // Deploy HellyHook (with dummy PoolManager for local testing)
+  const MOCK_POOL_MANAGER = "0x000000000000000000000000000000000000dEaD";
   const hookHash = await adminWc.deployContract({
     abi: EXTENDED_ABI, bytecode: getContractBytecode("HellyHook"),
-    args: [mockUSDC, BigInt(PLATFORM_FEE_BPS)],
+    args: [MOCK_POOL_MANAGER, mockUSDC, BigInt(PLATFORM_FEE_BPS)],
   });
   const hookReceipt = await publicClient.waitForTransactionReceipt({ hash: hookHash });
   const hellyHook = hookReceipt.contractAddress!;

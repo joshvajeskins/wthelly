@@ -77,13 +77,14 @@ async function deployContracts() {
   const mockUSDC = await deployContract(ADMIN_KEY, ERC20_ABI, getContractBytecode("MockUSDC"));
   console.log(`  MockUSDC: ${mockUSDC.address}`);
 
-  // Deploy HellyHook
+  // Deploy HellyHook (with dummy PoolManager for local testing)
+  const MOCK_POOL_MANAGER = "0x000000000000000000000000000000000000dEaD";
   console.log("Deploying HellyHook...");
   const hellyHook = await deployContract(
     ADMIN_KEY,
     HELLY_HOOK_ABI,
     getContractBytecode("HellyHook"),
-    [mockUSDC.address, BigInt(PLATFORM_FEE_BPS)]
+    [MOCK_POOL_MANAGER, mockUSDC.address, BigInt(PLATFORM_FEE_BPS)]
   );
   console.log(`  HellyHook: ${hellyHook.address}`);
 

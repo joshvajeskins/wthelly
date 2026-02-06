@@ -2,6 +2,7 @@ export const HELLY_HOOK_ABI = [
   {
     type: "constructor",
     inputs: [
+      { name: "_poolManager", type: "address" },
       { name: "_usdc", type: "address" },
       { name: "_platformFeeBps", type: "uint256" },
     ],
@@ -288,6 +289,15 @@ export const HELLY_HOOK_ABI = [
       { name: "totalPayout", type: "uint256", indexed: false },
       { name: "platformFee", type: "uint256", indexed: false },
       { name: "numPayouts", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "SwapMonitored",
+    inputs: [
+      { name: "poolId", type: "bytes32", indexed: true },
+      { name: "amount0", type: "int128", indexed: false },
+      { name: "amount1", type: "int128", indexed: false },
     ],
   },
 ] as const;

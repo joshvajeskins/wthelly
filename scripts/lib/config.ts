@@ -78,6 +78,7 @@ export const HELLY_HOOK_ABI = [
   {
     type: "constructor",
     inputs: [
+      { name: "_poolManager", type: "address" },
       { name: "_usdc", type: "address" },
       { name: "_platformFeeBps", type: "uint256" },
     ],
