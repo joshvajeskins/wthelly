@@ -151,3 +151,4 @@ if (process.argv[1]?.endsWith("6-settle-market.ts")) {
   console.log("Usage: import { runSettleMarket } from './6-settle-market.js'");
   process.exit(0);
 }
+
