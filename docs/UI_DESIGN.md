@@ -191,7 +191,7 @@ Think: **Discord meets Polymarket**, but the copy is unhinged.
 │                                                                 │
 │  DESTRUCTIVE                                                    │
 │  ┌─────────────────────┐                                       │
-│  │   Delete Bet        │  Red bg, white text                   │
+│  │   Cancel Bet        │  Red bg, white text                   │
 │  └─────────────────────┘  Used for dangerous actions           │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -210,9 +210,9 @@ Think: **Discord meets Polymarket**, but the copy is unhinged.
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │                                                          │   │
 │  │  ┌──────┐  "Will ETH hit $5k by March?"                 │   │
-│  │  │ 🔥   │                                                │   │
-│  │  │GYATT │  Rizz Pool: $127,450                          │   │
-│  │  └──────┘  Mode: CAP (hidden)                           │   │
+│  │  │      │                                                │   │
+│  │  │GYATT │  Participants: 47 skibidis                    │   │
+│  │  └──────┘  Type: Price Market                           │   │
 │  │            Closes in: 2d 14h                             │   │
 │  │                                                          │   │
 │  │  [BET NOW]                                              │   │
@@ -235,13 +235,13 @@ Think: **Discord meets Polymarket**, but the copy is unhinged.
 ```
 STATUS BADGES:
 
-[CAP]           - Purple bg, "hidden mode"
-[NO CAP]        - Cyan bg, "public mode"
-[GYATT 🍑]      - Pink bg, high volume
-[SIGMA MODE]    - Gradient bg, high aura
-[OHIO MODE]     - Red bg, losing streak
+[ENCRYPTED]     - Purple bg, "bets encrypted in TEE"
+[PRICE MARKET]  - Cyan bg, "auto-resolved by Uniswap hook"
+[CUSTOM]        - Pink bg, "admin-resolved"
+[GYATT]         - Pink bg, high participant count
 [RESOLVED]      - Green bg, market ended
-[PENDING]       - Yellow bg, waiting
+[SETTLING]      - Yellow bg, payouts processing
+[SETTLED]       - Green bg, payouts distributed
 ```
 
 ### Modals/Dialogs
@@ -262,8 +262,9 @@ STATUS BADGES:
 │  │  └─────────────┘  └─────────────┘                       │   │
 │  │                                                          │   │
 │  │  Amount: $[________] USDC                               │   │
+│  │  Channel Balance: $1,450.00                             │   │
 │  │                                                          │   │
-│  │  ⚡ Gasless via Yellow Network                          │   │
+│  │  Your bet is encrypted — only the TEE can read it       │   │
 │  │                                                          │   │
 │  │  [PLACE BET - NO CAP FR FR]                             │   │
 │  │                                                          │   │
@@ -285,7 +286,7 @@ STATUS BADGES:
 │  │  ┌─────────────────────────────────────────────────┐    │   │
 │  │  │  $ 100                                    USDC  │    │   │
 │  │  └─────────────────────────────────────────────────┘    │   │
-│  │  Balance: $1,450.00                                     │   │
+│  │  Channel Balance: $1,450.00                             │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  Styles:                                                        │
@@ -425,29 +426,26 @@ STATUS BADGES:
 ## Brainrot Copy Guidelines
 
 ### Button Labels
-- ❌ "Submit" → ✅ "LFG"
-- ❌ "Place Bet" → ✅ "Place Bet - No Cap Fr Fr"
-- ❌ "Confirm" → ✅ "Bet"
-- ❌ "Cancel" → ✅ "Nah I'm Good"
-- ❌ "Connect Wallet" → ✅ "Connect Wallet" (keep this normal)
+- "Submit" → "LFG"
+- "Place Bet" → "Place Bet - No Cap Fr Fr"
+- "Confirm" → "Bet"
+- "Cancel" → "Nah I'm Good"
+- "Connect Wallet" → "Connect Wallet" (keep this normal)
 
 ### Status Messages
-- ❌ "Transaction pending" → ✅ "Cooking... 🍳"
-- ❌ "Transaction confirmed" → ✅ "That's bussin fr fr ✅"
-- ❌ "Error occurred" → ✅ "Bruh. Something broke 💀"
-- ❌ "Insufficient balance" → ✅ "You're broke fr 😭"
-- ❌ "You won!" → ✅ "W DETECTED 🔥 +$X"
-- ❌ "You lost" → ✅ "L. Ohio moment 💀"
+- "Transaction pending" → "Cooking..."
+- "Transaction confirmed" → "That's bussin fr fr"
+- "Error occurred" → "Bruh. Something broke"
+- "Insufficient balance" → "You're broke fr"
+- "You won!" → "W DETECTED +$X"
+- "You lost" → "L. Ohio moment"
+- "Bet encrypted" → "Your bet is locked in the vault"
+- "Settlement complete" → "Bag secured"
 
 ### Labels
 - Users → Skibidis
-- Points → Aura
-- Teams → Squads
 - Pool → Rizz Pool
-- Private → Cap
-- Public → No Cap
 - High volume → Gyatt
-- Losing streak → Ohio Mode
 - Fee → Fanum Tax
 
 ### Keep Professional
@@ -455,6 +453,7 @@ STATUS BADGES:
 - Critical financial info (amounts, balances) stays clear
 - Wallet connection flow stays standard
 - Don't brainrot the actual numbers
+- Encryption/security indicators stay clear and trustworthy
 
 ---
 
@@ -549,10 +548,10 @@ Common icons:
 - `TrendingUp` - markets
 - `User` - profile
 - `Clock` - countdown
-- `Eye` / `EyeOff` - show/hide
+- `Lock` / `Unlock` - encrypted/revealed
+- `Shield` - TEE security indicator
 - `Check` - success
 - `X` - close/error
 - `Loader2` - loading (animated)
 - `ArrowRight` - navigation
 - `ExternalLink` - external links
-

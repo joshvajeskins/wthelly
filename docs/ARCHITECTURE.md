@@ -24,220 +24,354 @@
 │                                                                         │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │
+                     WebSocket (NitroRPC)
+                                │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          INTEGRATION LAYER                               │
+│                          CLEARNODE (Yellow Network)                      │
 │                                                                         │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐        │
-│  │   wagmi/viem    │  │   Yellow SDK    │  │    LI.FI SDK    │        │
-│  │                 │  │                 │  │                 │        │
-│  │ • Wallet conn   │  │ • State channel │  │ • Quote         │        │
-│  │ • Contract calls│  │ • Sign states   │  │ • Route         │        │
-│  │ • Events        │  │ • Gasless ops   │  │ • Execute       │        │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘        │
+│  Message router — sees NOTHING about bet content                        │
+│                                                                         │
+│  • Routes signed app states between users and app server               │
+│  • Manages ledger channels (user ↔ Clearnode)                          │
+│  • Manages virtual app sessions (user ↔ app server)                    │
+│  • Enforces ERC-7824 protocol (signatures, nonces)                     │
+│  • Encrypted session_data passes through opaquely                      │
 │                                                                         │
 └───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+                     WebSocket (NitroRPC)
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       TEE APP SERVER (Enclave)                          │
+│                                                                         │
+│  Runs inside Trusted Execution Environment                              │
+│                                                                         │
+│  • Decrypts bet payloads (only TEE has private key)                    │
+│  • Validates bets (sufficient balance, market open, etc.)              │
+│  • Maintains private pool state (yes/no totals per market)             │
+│  • Computes payouts at resolution                                       │
+│  • Generates ZK settlement proofs                                       │
+│  • Signs final app states for on-chain settlement                      │
+│                                                                         │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+                    On-chain transactions
                                 │
           ┌─────────────────────┼─────────────────────┐
           ▼                     ▼                     ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  Yellow Network │  │   Uniswap v4    │  │     LI.FI       │
-│                 │  │                 │  │                 │
-│  State Channels │  │  Settlement     │  │  Cross-chain    │
-│  • Nitrolite    │  │  • HellyHook    │  │  • Bridges      │
-│  • Off-chain    │  │  • Atomic       │  │  • DEX Agg      │
-│    betting      │  │    payouts      │  │                 │
+│  Custody.sol    │  │  HellyHook.sol  │  │  Wthelly        │
+│  (NitroLite)    │  │  (Uniswap v4)   │  │  Adjudicator    │
+│                 │  │                 │  │  (ERC-7824)     │
+│  Holds USDC     │  │  afterSwap()    │  │                 │
+│  deposits for   │  │  monitors pool  │  │  Validates      │
+│  state channels │  │  prices, auto-  │  │  settlement     │
+│                 │  │  resolves price │  │  states and     │
+│                 │  │  markets        │  │  ZK proofs      │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
           │                     │                     │
           └─────────────────────┼─────────────────────┘
                                 │
                                 ▼
                     ┌─────────────────────┐
-                    │    Base / Arbitrum  │
-                    │    (Settlement)     │
+                    │   Base Sepolia      │
+                    │   (Settlement)      │
                     └─────────────────────┘
 ```
 
 ---
 
-## Frontend Architecture
+## State Channel Architecture (ERC-7824 / NitroLite)
 
-### Directory Structure
+### Channel Hierarchy
 
 ```
-frontend/
-├── src/
-│   ├── app/                          # Next.js App Router
-│   │   ├── layout.tsx               # Root layout with providers
-│   │   ├── page.tsx                 # Home page
-│   │   ├── markets/
-│   │   │   ├── page.tsx             # Markets list
-│   │   │   └── [id]/
-│   │   │       └── page.tsx         # Market detail
-│   │   ├── profile/
-│   │   │   └── page.tsx             # User profile
-│   │   ├── deposit/
-│   │   │   └── page.tsx             # Deposit page
-│   │   └── globals.css              # Global styles
-│   │
-│   ├── components/
-│   │   ├── ui/                      # shadcn components
-│   │   │   ├── button.tsx
-│   │   │   ├── card.tsx
-│   │   │   ├── dialog.tsx
-│   │   │   ├── input.tsx
-│   │   │   ├── select.tsx
-│   │   │   ├── tabs.tsx
-│   │   │   ├── badge.tsx
-│   │   │   ├── toast.tsx
-│   │   │   └── ...
-│   │   │
-│   │   ├── layout/
-│   │   │   ├── header.tsx           # Navigation header
-│   │   │   ├── footer.tsx           # Footer
-│   │   │   ├── sidebar.tsx          # Mobile sidebar
-│   │   │   └── mobile-nav.tsx       # Bottom nav for mobile
-│   │   │
-│   │   ├── markets/
-│   │   │   ├── market-card.tsx      # Market preview card
-│   │   │   ├── market-grid.tsx      # Grid of market cards
-│   │   │   ├── market-filters.tsx   # Filter/sort controls
-│   │   │   ├── market-stats.tsx     # Market statistics display
-│   │   │   └── market-countdown.tsx # Deadline countdown
-│   │   │
-│   │   ├── betting/
-│   │   │   ├── bet-modal.tsx        # Betting dialog
-│   │   │   ├── bet-form.tsx         # YES/NO selection + amount
-│   │   │   ├── bet-card.tsx         # User's bet display
-│   │   │   ├── bet-history.tsx      # List of past bets
-│   │   │   ├── reveal-modal.tsx     # Reveal and claim dialog
-│   │   │   └── commitment.ts        # Commitment generation utils
-│   │   │
-│   │   ├── wallet/
-│   │   │   ├── connect-button.tsx   # Wallet connection
-│   │   │   ├── account-menu.tsx     # Connected account dropdown
-│   │   │   ├── channel-balance.tsx  # Yellow channel balance
-│   │   │   └── deposit-widget.tsx   # LI.FI deposit component
-│   │   │
-│   │   └── shared/
-│   │       ├── loading.tsx          # Loading states
-│   │       ├── error.tsx            # Error states
-│   │       ├── empty.tsx            # Empty states
-│   │       └── aura-badge.tsx       # Aura/status display
-│   │
-│   ├── hooks/
-│   │   ├── use-markets.ts           # Market data fetching
-│   │   ├── use-market.ts            # Single market data
-│   │   ├── use-bets.ts              # User's bets
-│   │   ├── use-channel.ts           # Yellow state channel
-│   │   ├── use-deposit.ts           # LI.FI deposit flow
-│   │   ├── use-user.ts              # User profile/stats
-│   │   └── use-commitment.ts        # Commitment management
-│   │
-│   ├── providers/
-│   │   ├── wallet-provider.tsx      # wagmi + RainbowKit
-│   │   ├── yellow-provider.tsx      # Yellow SDK context
-│   │   ├── theme-provider.tsx       # Dark/light mode
-│   │   └── toast-provider.tsx       # Notifications
-│   │
-│   ├── lib/
-│   │   ├── utils.ts                 # General utilities
-│   │   ├── commitment.ts            # Commitment hash generation
-│   │   ├── storage.ts               # LocalStorage helpers
-│   │   ├── format.ts                # Number/date formatting
-│   │   └── constants.ts             # App constants
-│   │
-│   ├── types/
-│   │   ├── market.ts                # Market types
-│   │   ├── bet.ts                   # Bet types
-│   │   ├── user.ts                  # User types
-│   │   └── channel.ts               # Channel types
-│   │
-│   └── config/
-│       ├── wagmi.ts                 # wagmi configuration
-│       ├── chains.ts                # Supported chains
-│       └── contracts.ts             # Contract addresses
-│
-├── public/
-│   ├── logo.svg
-│   └── og-image.png
-│
-├── tailwind.config.ts
-├── next.config.ts
-├── package.json
-└── tsconfig.json
+┌─────────────────────────────────────────────────────────────────┐
+│  LEDGER CHANNEL (on-chain)                                      │
+│  User ↔ Clearnode                                               │
+│  • Created by depositing USDC to Custody contract               │
+│  • One per user                                                  │
+│  • Allocations: [user_balance, clearnode_balance]                │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  APP SESSION 1 (virtual, off-chain)                       │  │
+│  │  Market: "Will ETH hit $5k?"                              │  │
+│  │  Participants: [user, app_server]                         │  │
+│  │  Allocations: [user_alloc, server_alloc]                  │  │
+│  │  session_data: <encrypted bet blob>                       │  │
+│  │  Adjudicator: WthellyAdjudicator                         │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  APP SESSION 2 (virtual, off-chain)                       │  │
+│  │  Market: "BTC above $100k by March?"                      │  │
+│  │  Participants: [user, app_server]                         │  │
+│  │  Allocations: [user_alloc, server_alloc]                  │  │
+│  │  session_data: <encrypted bet blob>                       │  │
+│  │  Adjudicator: WthellyAdjudicator                         │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### NitroRPC Message Format
+
+All messages between user, Clearnode, and app server follow the NitroRPC protocol:
+
+```typescript
+// Request
+type NitroRequest = [
+  "req",                    // message type
+  requestId: number,        // unique ID
+  method: string,           // RPC method name
+  payload: any[],           // method parameters
+  timestamp: number,        // Unix timestamp
+  signature: string         // EIP-712 signature
+];
+
+// Response
+type NitroResponse = [
+  "res",
+  requestId: number,
+  method: string,
+  payload: any[],
+  timestamp: number,
+  signature: string
+];
+```
+
+### Key RPC Methods Used
+
+| Method | Purpose |
+|--------|---------|
+| `auth_request` | Request JWT auth token from Clearnode |
+| `create_app_session` | Create a new market betting session |
+| `close_app_session` | Close session and settle |
+| `send_app_state` | Send encrypted bet to app server |
+| `get_app_sessions` | List active sessions |
+| `get_ledger_balances` | Check channel balance |
 
 ---
 
 ## Data Flow
 
-### Placing a Private Bet (Cap Mode)
+### Placing a Bet (Encrypted, Gasless)
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Frontend   │     │    Yellow    │     │   Backend    │
-│              │     │   Network    │     │   (Future)   │
+│   Frontend   │     │  Clearnode   │     │  TEE App     │
+│   (Browser)  │     │  (Router)    │     │  Server      │
 └──────┬───────┘     └──────┬───────┘     └──────┬───────┘
        │                    │                    │
-       │ 1. User selects    │                    │
+       │ 1. User picks      │                    │
        │    YES + $100      │                    │
        │                    │                    │
-       │ 2. Generate secret │                    │
-       │    (client-side)   │                    │
+       │ 2. Encrypt bet     │                    │
+       │    payload to TEE  │                    │
+       │    public key      │                    │
        │                    │                    │
-       │ 3. Create commit   │                    │
-       │    hash(YES,$100,  │                    │
-       │    secret)         │                    │
+       │ 3. Create signed   │                    │
+       │    app state:      │                    │
+       │    allocs=[SAME]   │                    │
+       │    data=encrypted  │                    │
        │                    │                    │
-       │ 4. Store secret    │                    │
-       │    in localStorage │                    │
+       │ 4. send_app_state ─┼──────────────────►│
+       │    (NitroRPC)      │  routes opaque     │
+       │                    │  blob through      │
+       │                    │                    │ 5. Decrypt bet
+       │                    │                    │    Validate:
+       │                    │                    │    - amount <= balance
+       │                    │                    │    - market is open
+       │                    │                    │    Record internally
        │                    │                    │
-       │ 5. Sign state ─────┼──────────────────►│
-       │    channel update  │                    │
-       │    (commitment +   │                    │
-       │     amount only)   │                    │
+       │◄───────────────────┼────────────────────│ 6. ACK (signed
+       │                    │                    │    counter-state)
        │                    │                    │
-       │                    │ 6. Update channel  │
-       │                    │    state (off-chain)
-       │                    │                    │
-       │◄───────────────────┼────────────────────│ 7. Confirm
-       │                    │                    │
-       │ 8. Show success    │                    │
-       │    (bet hidden)    │                    │
+       │ 7. Show "Bet       │                    │
+       │    placed" toast   │                    │
        │                    │                    │
 ```
 
-### Revealing a Bet
+**Critical insight**: Allocations do NOT change when placing a bet. Only `session_data` is updated with the encrypted bet blob. This means the Clearnode cannot infer bet amounts from allocation changes.
+
+### Market Resolution & Settlement
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Frontend   │     │    Yellow    │     │  Uniswap v4  │
-│              │     │   Network    │     │    Hook      │
+│  Uniswap v4  │     │  TEE App     │     │  Custody     │
+│  HellyHook   │     │  Server      │     │  Contract    │
 └──────┬───────┘     └──────┬───────┘     └──────┬───────┘
        │                    │                    │
-       │ 1. Market resolved │                    │
-       │    (notification)  │                    │
+       │ 1. afterSwap()     │                    │
+       │    detects price   │                    │
+       │    target met      │                    │
        │                    │                    │
-       │ 2. Get secret from │                    │
-       │    localStorage    │                    │
+       │ 2. Emit            │                    │
+       │    MarketResolved  │                    │
+       │    event           │                    │
        │                    │                    │
-       │ 3. Submit reveal ──┼──────────────────►│
-       │    (direction +    │                    │
-       │     secret)        │                    │
+       │──────────────────►│                    │
+       │                    │ 3. Process event   │
+       │                    │    Compute payouts │
+       │                    │    for all bettors │
        │                    │                    │
-       │                    │ 4. Verify:        │
-       │                    │    hash(reveal)   │
-       │                    │    == commitment  │
+       │                    │ 4. Generate ZK     │
+       │                    │    proof of        │
+       │                    │    correct payouts │
        │                    │                    │
-       │                    │ 5. Aggregate ─────┼──►│
-       │                    │    all reveals    │   │
+       │                    │ 5. Create final    │
+       │                    │    app states:     │
+       │                    │    allocs updated  │
+       │                    │    (winners +,     │
+       │                    │     losers -)      │
+       │                    │                    │
+       │                    │ 6. close_app_      │
+       │                    │    session ────────┼──►│
+       │                    │    (for each user) │   │
+       │                    │                    │   │ 7. Verify
+       │                    │                    │   │    adjudicator
+       │                    │                    │   │    + ZK proof
        │                    │                    │   │
-       │                    │                    │   │ 6. Execute
-       │                    │                    │   │    settlement
-       │                    │                    │   │
-       │◄───────────────────┼────────────────────┼───│ 7. Payout
+       │                    │                    │   │ 8. Distribute
+       │                    │                    │   │    USDC to
+       │                    │                    │   │    winners
        │                    │                    │
+```
+
+---
+
+## Encryption & Privacy
+
+### TEE Encryption Model
+
+```typescript
+// Frontend encrypts bet to TEE public key
+interface BetPayload {
+  marketId: string;
+  direction: 'yes' | 'no';
+  amount: number;
+}
+
+// Encrypted with TEE's public key (e.g., ECIES or NaCl box)
+const encryptedBet = encrypt(
+  JSON.stringify(betPayload),
+  TEE_PUBLIC_KEY
+);
+
+// App state sent via Clearnode
+interface AppState {
+  allocations: [bigint, bigint];  // UNCHANGED during betting
+  session_data: string;            // encrypted bet blob (opaque)
+  nonce: number;
+  signatures: [string, string];
+}
+```
+
+### Privacy Guarantees
+
+| Layer | What It Sees |
+|-------|-------------|
+| **Frontend** | Own bet only (plaintext before encryption) |
+| **Clearnode** | Encrypted blobs, channel metadata, routing info |
+| **TEE App Server** | All bets (decrypted), pool ratios, payout computation |
+| **On-chain** | Final allocations only (after settlement). No bet details. |
+| **Other users** | Nothing until market resolution |
+
+### TEE Trust Model
+
+- App server runs in a verified TEE enclave (e.g., Intel SGX, AWS Nitro)
+- Code hash is publicly verifiable — anyone can confirm what code runs in the enclave
+- TEE private key never leaves the enclave
+- Even the app server operator cannot extract bet data
+
+---
+
+## Smart Contracts
+
+### Custody.sol (NitroLite)
+
+Standard NitroLite custody contract. Holds USDC deposits and distributes funds based on final channel states.
+
+```
+Custody functions:
+├── deposit(channelId, amount)     — Lock USDC into channel
+├── challenge(channelId, state)    — Start dispute with signed state
+├── checkpoint(channelId, state)   — Record agreed state on-chain
+├── conclude(channelId, state)     — Close channel, distribute funds
+└── reclaim(channelId)             — Reclaim after timeout
+```
+
+### WthellyAdjudicator.sol (ERC-7824)
+
+Custom adjudicator that validates prediction market app session states.
+
+```solidity
+interface IWthellyAdjudicator {
+    // Validate a state transition
+    // - During betting: only session_data changes, allocations unchanged
+    // - During settlement: allocations change, ZK proof required
+    function adjudicate(
+        AdjudicatorParams calldata params,
+        bytes calldata proof
+    ) external returns (bool);
+}
+
+// AdjudicatorParams (from ERC-7824)
+struct AdjudicatorParams {
+    uint256 channelId;
+    address[] participants;
+    uint256[] allocations;
+    bytes appData;           // session_data (encrypted during betting)
+    uint256 nonce;
+}
+```
+
+### HellyHook.sol (Uniswap v4)
+
+```solidity
+contract HellyHook is BaseHook {
+    struct PriceMarket {
+        bytes32 marketId;
+        PoolKey poolKey;          // Which Uniswap pool to monitor
+        uint160 targetSqrtPrice;  // Target price in sqrtPriceX96 format
+        bool isAbove;             // true = resolve YES when price >= target
+        uint256 deadline;         // Market expiry
+        bool resolved;
+        bool outcome;
+    }
+
+    mapping(bytes32 => PriceMarket) public markets;
+
+    // Hook: fires after every swap in registered pools
+    function afterSwap(
+        address sender,
+        PoolKey calldata key,
+        IPoolManager.SwapParams calldata params,
+        BalanceDelta delta,
+        bytes calldata hookData
+    ) external override returns (bytes4, int128) {
+        // Check all active markets for this pool
+        // If price condition met → resolve market
+        // Emit MarketResolved(marketId, outcome)
+    }
+
+    // Permissionless: anyone can create a price-based market
+    function createPriceMarket(
+        bytes32 marketId,
+        PoolKey calldata poolKey,
+        uint160 targetSqrtPrice,
+        bool isAbove,
+        uint256 deadline
+    ) external;
+
+    // Admin: resolve non-price markets manually
+    function resolveMarket(
+        bytes32 marketId,
+        bool outcome
+    ) external onlyAdmin;
+}
 ```
 
 ---
@@ -247,256 +381,62 @@ frontend/
 ### Client-Side State
 
 ```typescript
-// React Context for global state
-
 interface AppState {
   // User
   user: UserSession | null;
   isConnected: boolean;
 
-  // Channel
-  channelBalance: number;
-  channelNonce: number;
+  // Yellow Network
+  ledgerChannelId: string | null;
+  channelBalance: bigint;
+  appSessions: AppSession[];     // One per market the user is betting on
 
   // Markets
   markets: Market[];
   marketsLoading: boolean;
 
-  // User's bets
-  activeBets: Bet[];
-  betHistory: Bet[];
+  // User's bets (decrypted locally, never sent unencrypted)
+  myBets: Map<string, BetPayload>;  // marketId → bet
 
-  // Local secrets (for cap mode)
-  betSecrets: Map<string, LocalBetSecret>;
+  // TEE
+  teePublicKey: string;           // For encrypting bets
 }
 ```
 
-### Local Storage Schema
+### App Session State (ERC-7824)
 
 ```typescript
-// Keys and structure
-
-localStorage = {
-  // Bet secrets (encrypted)
-  'helly:secrets': {
-    [marketId]: {
-      direction: 'yes' | 'no',
-      amount: number,
-      secret: string,
-      commitment: string,
-      timestamp: number
-    }
-  },
-
-  // User preferences
-  'helly:theme': 'dark' | 'light',
-
-  // Recent transactions
-  'helly:deposits': Deposit[],
-
-  // Session
-  'helly:session': {
-    address: string,
-    username: string,
-    lastConnected: number
-  }
-}
-```
-
----
-
-## API Design (Mock for Hackathon)
-
-### Markets API
-
-```typescript
-// GET /api/markets
-interface MarketsResponse {
-  markets: Market[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
-// GET /api/markets/:id
-interface MarketResponse {
-  market: Market;
-  userBets?: Bet[];  // If connected
-}
-
-// POST /api/markets/:id/bet
-interface PlaceBetRequest {
-  commitment: string;
-  amount: number;
-  signature: string;
-}
-
-// POST /api/markets/:id/reveal
-interface RevealRequest {
-  direction: 'yes' | 'no';
-  secret: string;
-  signature: string;
-}
-```
-
-### User API
-
-```typescript
-// GET /api/user/:address
-interface UserResponse {
-  address: string;
-  username: string;
-  aura: number;
-  wins: number;
-  losses: number;
-  squadId?: string;
-}
-
-// GET /api/user/:address/bets
-interface UserBetsResponse {
-  active: Bet[];
-  history: Bet[];
-}
-```
-
----
-
-## Smart Contract Architecture
-
-### HellyHook.sol (Uniswap v4)
-
-```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
-
-import {BaseHook} from "v4-periphery/BaseHook.sol";
-
-contract HellyHook is BaseHook {
-
-    struct Market {
-        bytes32 id;
-        string question;
-        uint256 deadline;
-        uint256 yesPool;
-        uint256 noPool;
-        bool resolved;
-        bool outcome;
-        mapping(address => bytes32) commitments;
-        mapping(address => uint256) amounts;
-    }
-
-    mapping(bytes32 => Market) public markets;
-
-    // Create market
-    function createMarket(
-        bytes32 id,
-        string calldata question,
-        uint256 deadline
-    ) external;
-
-    // Place bet (commitment only)
-    function placeBet(
-        bytes32 marketId,
-        bytes32 commitment,
-        uint256 amount
-    ) external;
-
-    // Reveal bet
-    function revealBet(
-        bytes32 marketId,
-        bool direction,
-        bytes32 secret
-    ) external;
-
-    // Resolve market (oracle callback)
-    function resolveMarket(
-        bytes32 marketId,
-        bool outcome
-    ) external onlyOracle;
-
-    // Settle and distribute payouts
-    function settle(bytes32 marketId) external;
-}
-```
-
-### Yellow Channel Interface
-
-```typescript
-// Yellow SDK integration (simplified)
-
-interface YellowChannel {
-  // Open channel with deposit
-  open(amount: bigint): Promise<ChannelId>;
-
-  // Get current balance
-  getBalance(): Promise<bigint>;
-
-  // Sign state update (gasless)
-  signStateUpdate(update: StateUpdate): Promise<SignedState>;
-
-  // Close channel and settle
-  close(): Promise<TxHash>;
-}
-
-interface StateUpdate {
+interface AppSession {
+  sessionId: string;
+  marketId: string;
+  participants: [string, string];     // [user, appServer]
+  allocations: [bigint, bigint];      // [userAlloc, serverAlloc]
+  sessionData: string;                 // Encrypted bet blob
   nonce: number;
-  commitments: Commitment[];
-  balanceChange: bigint;
+  status: 'open' | 'settled' | 'disputed';
 }
 ```
 
 ---
 
-## Security Considerations
-
-### Commitment Scheme
+## Payout Calculation
 
 ```
-commitment = keccak256(
-  abi.encodePacked(
-    marketId,
-    direction,    // 'yes' or 'no'
-    amount,
-    secret        // 32 random bytes
-  )
-)
+Winner Payout = (user_bet / total_winner_pool) * total_loser_pool * (1 - fee)
+
+Example:
+- Total YES pool: $60,000
+- Total NO pool: $40,000
+- User bet: $100 on YES
+- YES wins
+- Fee: 2% (Fanum Tax)
+
+Winnings = ($100 / $60,000) * $40,000 * 0.98 = $65.33
+Total Return = $100 (original) + $65.33 (winnings) = $165.33
+
+This calculation happens inside the TEE.
+ZK proof verifies the math on-chain without revealing individual bets.
 ```
-
-**Properties:**
-- Hiding: Cannot determine direction from commitment
-- Binding: Cannot change direction after committing
-
-### Secret Storage
-
-- Secrets stored in browser localStorage
-- Encrypted with user's wallet signature
-- Never sent to server until reveal
-- User warned to not clear browser data
-
-### Reveal Window
-
-- Fixed 1-hour window after resolution
-- Non-revealed bets forfeited (funds to winner pool)
-- Prevents indefinite waiting attacks
-
----
-
-## Performance Optimizations
-
-### Frontend
-
-- React Server Components for static content
-- Client components only where needed
-- Optimistic UI updates
-- SWR/React Query for data fetching
-- Lazy loading for market list
-- Virtual scrolling for long lists
-
-### State Channels
-
-- Batch multiple bets in single state update
-- Compress state for smaller signatures
-- Cache channel state client-side
 
 ---
 
@@ -517,12 +457,15 @@ enum HellyError {
   // Betting
   MARKET_CLOSED = 'MARKET_CLOSED',
   INVALID_AMOUNT = 'INVALID_AMOUNT',
-  BET_EXISTS = 'BET_EXISTS',
+  ENCRYPTION_FAILED = 'ENCRYPTION_FAILED',
 
-  // Reveal
-  REVEAL_WINDOW_CLOSED = 'REVEAL_WINDOW_CLOSED',
-  INVALID_SECRET = 'INVALID_SECRET',
-  SECRET_NOT_FOUND = 'SECRET_NOT_FOUND',
+  // Settlement
+  SETTLEMENT_PROOF_INVALID = 'SETTLEMENT_PROOF_INVALID',
+  ADJUDICATOR_REJECTED = 'ADJUDICATOR_REJECTED',
+
+  // TEE
+  TEE_UNAVAILABLE = 'TEE_UNAVAILABLE',
+  DECRYPTION_FAILED = 'DECRYPTION_FAILED',
 
   // Deposit
   DEPOSIT_FAILED = 'DEPOSIT_FAILED',
@@ -532,7 +475,6 @@ enum HellyError {
 
 ### Recovery Flows
 
-- Secret backup/restore option
-- Manual reveal if auto-reveal fails
-- Channel dispute resolution via Yellow
-
+- **TEE down**: Channel can be disputed on-chain via Custody contract timeout
+- **Clearnode down**: Yellow Network liveness guarantees — user can force-close channel on-chain
+- **Settlement dispute**: WthellyAdjudicator verifies ZK proof; incorrect settlement is rejected

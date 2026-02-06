@@ -1,6 +1,6 @@
-# WTHELLY — Private Betting with Brainrot Energy
+# WTHELLY — Private Prediction Markets
 
-> Bet on anything. Hidden positions. Maximum aura. No cap fr fr.
+> Bet on anything. Nobody sees your position. No cap fr fr.
 
 ---
 
@@ -9,40 +9,21 @@
 Prediction markets are cooked:
 
 - **Public bets = skill issue** — Everyone sees the odds, herd mentality kicks in, whales manipulate
-- **Gas fees are not sigma** — Paying $5 to place a $10 bet is negative aura
-- **UX is Ohio-tier** — Wallet popups, chain switching, bridge waiting... bro just let me bet
-
-There's no way to make a quick, private, gasless bet without losing your mind.
+- **Gas fees are not sigma** — Paying $5 to place a $10 bet is negative energy
+- **Bet privacy is nonexistent** — Even "commit-reveal" schemes leak amounts and timing to the server
+- **No trustless resolution** — Most markets rely on centralized oracles or admin resolution
 
 ---
 
 ## Solution
 
-A web app where:
+A prediction market where:
 
-1. **Private betting** — Your position is hidden until resolution (commitment-reveal scheme)
-2. **Gasless everything** — Yellow state channels handle bets off-chain
-3. **Deposit from anywhere** — LI.FI brings funds from any chain
-4. **Atomic settlement** — Uniswap v4 hook handles payouts
-
-No cap, this is how betting should work.
-
----
-
-## Brainrot Theme & Terminology
-
-| Term | Meaning |
-|------|---------|
-| **Skibidi** | User/bettor |
-| **Aura** | Points/reputation from winning bets |
-| **Squad** | Team of skibidis that compete together |
-| **Rizz Pool** | The betting pool for a market |
-| **Sigma Battle** | 1v1 bet between two skibidis |
-| **Ohio Mode** | When you're on a losing streak |
-| **Gyatt** | A market with massive volume (that's a gyatt pool fr) |
-| **No Cap** | Public market (transparent odds) |
-| **Cap** | Private market (hidden positions) |
-| **Fanum Tax** | Platform fee on winnings |
+1. **All bets are encrypted** — TEE app server holds all positions. Clearnode (the router) sees nothing. Pool ratios are hidden from everyone until resolution.
+2. **Gasless everything** — Yellow Network state channels handle all bets off-chain via signed app states.
+3. **Trustless price resolution** — Uniswap v4 hook monitors on-chain pool prices and auto-resolves markets when conditions are met.
+4. **Deposit from anywhere** — LI.FI brings funds from any chain.
+5. **Verifiable settlement** — ZK proofs verify payout computation on-chain.
 
 ---
 
@@ -50,476 +31,275 @@ No cap, this is how betting should work.
 
 | Protocol | Role | How We Use It |
 |----------|------|---------------|
-| **Yellow Network** | Gasless betting | State channels for off-chain bet placement, modification, cancellation |
-| **Uniswap v4** | Settlement | Custom hook for atomic bet resolution and payouts |
-| **LI.FI** | Cross-chain deposits | Deposit from any chain with any token, converted to USDC |
+| **Yellow Network** | Gasless private betting | NitroLite state channels (ERC-7824). Clearnode routes encrypted app states between users and TEE app server. All betting is off-chain. |
+| **Uniswap v4** | Trustless price oracle | Custom hook with `afterSwap()` — monitors pool prices on every swap, auto-resolves price-based prediction markets when target conditions are met. |
+| **LI.FI** | Cross-chain deposits | Deposit from any chain with any token, bridged and swapped to USDC on the settlement chain. |
 
 ---
 
-## Key Innovation: Private Betting via State Channels
+## Key Innovation: TEE-Encrypted State Channels
 
-### The Problem with Public Bets
+### The Problem with Existing Approaches
 
 ```
-TYPICAL PREDICTION MARKET:
-
-"Will ETH hit $5k by Friday?"
-
-YES: $45,000 (73%)
-NO:  $17,000 (27%)
-
-Problems:
-├── Everyone sees sentiment → herding behavior
-├── Whales see small bets → counter-position
+TYPICAL PREDICTION MARKET (Polymarket-style):
+├── All positions are public → herding behavior
+├── Whales see sentiment → counter-position
 ├── Late bettors have information advantage
 └── Market manipulation via fake volume
 
-Result: Negative aura experience
+COMMIT-REVEAL (on-chain):
+├── Amounts are visible on-chain during commit phase
+├── Server knows the commitment count → can infer sentiment
+├── Reveal phase is on-chain → gas costs per user
+└── Secret storage in browser localStorage → fragile
 ```
 
-### WTHELLY Solution: Cap Mode (Hidden Bets)
+### WTHELLY Solution: Encrypted App Sessions
 
 ```
-WTHELLY (Cap Mode):
+WTHELLY:
+├── User encrypts bet to TEE public key
+├── Clearnode routes encrypted blob (sees nothing)
+├── TEE decrypts and validates internally
+├── Pool ratios hidden from everyone
+├── Allocations don't change during betting
+│   └── Only session_data updates (opaque to Clearnode)
+├── At resolution: TEE reveals all, computes payouts
+├── ZK proof verifies settlement math
+└── On-chain settlement via WthellyAdjudicator
 
-"Will ETH hit $5k by Friday?"
-
-Total Rizz Pool: $62,000
-Positions: HIDDEN (that's cap fr)
-Your Bet: Only you know
-
-At resolution:
-├── Oracle confirms result
-├── Skibidis reveal their bets
-├── Commitments verified
-└── Payouts via Uniswap v4 hook
-
-Maximum sigma energy.
+Privacy guarantees:
+├── Clearnode: sees NOTHING (encrypted blobs only)
+├── Other users: see NOTHING
+├── Frontend: sees only own encrypted bet confirmation
+├── TEE app server: sees all (runs in verified enclave)
+└── Pool ratios: hidden until market resolution
 ```
 
 ---
 
 ## How It Works
 
-### Betting Flow
+### State Channel Architecture (ERC-7824 / NitroLite)
+
+```
+┌──────────────┐                ┌──────────────┐
+│   User       │◄──── WS ─────►│  Clearnode    │
+│   (Browser)  │  NitroRPC      │  (Router)     │
+└──────┬───────┘                └──────┬────────┘
+       │                               │
+       │  Signed app states            │  Routes messages
+       │  (encrypted session_data)     │  (sees nothing)
+       │                               │
+       │                        ┌──────┴────────┐
+       │                        │  TEE App      │
+       │                        │  Server       │
+       │                        │               │
+       │                        │  • Decrypts   │
+       │                        │  • Validates   │
+       │                        │  • Tracks pool │
+       │                        │  • Computes    │
+       │                        │    payouts     │
+       │                        └───────────────┘
+       │
+┌──────┴───────┐
+│   Custody    │  On-chain (Base Sepolia)
+│   Contract   │  Holds USDC deposits
+└──────────────┘
+```
+
+### Betting Flow (Detailed)
+
+```
+1. OPEN STATE CHANNEL (one-time, on-chain)
+   ├── User deposits USDC to Custody contract
+   ├── Creates a ledger channel with Clearnode
+   └── Gets session key for signing
+
+2. JOIN MARKET (gasless, off-chain)
+   ├── User creates an app session for a specific market
+   ├── App session has [user_allocation, server_allocation]
+   ├── Initial allocations set based on deposit
+   └── WthellyAdjudicator validates the session
+
+3. PLACE BET (gasless, encrypted, off-chain)
+   ├── User creates bet payload: { marketId, direction, amount }
+   ├── Encrypts payload to TEE public key
+   ├── Signs app state update:
+   │   ├── allocations: [UNCHANGED, UNCHANGED]  ← key insight
+   │   └── session_data: encrypted_bet_blob
+   ├── Sends via Clearnode (Clearnode sees nothing)
+   └── TEE decrypts, validates (sufficient balance?), records bet
+
+4. MARKET RESOLUTION (on-chain trigger)
+   ├── Price markets: Uniswap v4 hook detects price condition met
+   ├── Custom markets: Admin posts resolution on-chain
+   ├── TEE receives resolution event
+   └── TEE computes final payouts for all participants
+
+5. SETTLEMENT (on-chain)
+   ├── TEE generates ZK proof of correct payout computation
+   ├── TEE creates final app state with updated allocations:
+   │   ├── Winners: allocation increased by winnings
+   │   ├── Losers: allocation decreased by bet amount
+   │   └── Platform: fanum tax collected
+   ├── Final state submitted to WthellyAdjudicator
+   ├── Adjudicator verifies ZK proof + signatures
+   └── Custody contract distributes USDC to winners
+```
+
+### What's Hidden and From Whom
+
+| Data | Clearnode Sees? | Other Users See? | TEE Sees? |
+|------|----------------|------------------|-----------|
+| Bet direction | No (encrypted) | No | Yes |
+| Bet amount | No (encrypted) | No | Yes |
+| Pool ratios | No | No | Yes |
+| Market question | Yes (public) | Yes | Yes |
+| User address | Yes (channel routing) | No | Yes |
+| Final payouts | Yes (after settlement) | Own only | Yes |
+
+---
+
+## Uniswap v4 Price Oracle Hook
+
+### How HellyHook Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  1. SKIBIDI PLACES BET                                          │
+│  Uniswap v4 Pool (e.g., ETH/USDC)                              │
 │                                                                 │
-│  Web App:                                                       │
-│  ├── User selects: YES, $100                                   │
-│  ├── Generates random secret locally                           │
-│  ├── Creates commitment = hash(market, YES, $100, secret)      │
-│  ├── Stores secret in browser (localStorage/IndexedDB)         │
-│  └── Signs state channel update (gasless)                      │
+│  Normal swaps happen as usual                                   │
 │                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  2. YELLOW STATE CHANNEL                                        │
+│  afterSwap() hook fires on every swap:                          │
+│  ├── Gets current pool price (sqrtPriceX96)                    │
+│  ├── Checks all registered prediction markets                  │
+│  ├── For each market with a price target:                      │
+│  │   ├── "Will ETH hit $5k?" → check if price >= $5000        │
+│  │   ├── "Will ETH drop below $3k?" → check if price <= $3000 │
+│  │   └── If condition met → emit MarketResolved event          │
+│  └── TEE app server listens for events → triggers settlement  │
 │                                                                 │
-│  Off-chain magic:                                               │
-│  ├── Bet recorded in state channel                             │
-│  ├── Funds locked (but no on-chain tx)                         │
-│  ├── Instant confirmation                                       │
-│  └── Can modify/cancel anytime (still gasless)                 │
+│  Permissionless market creation:                                │
+│  ├── Anyone can create a price-based market                    │
+│  ├── Specify: pool, direction (above/below), target price      │
+│  └── Hook auto-resolves when condition is met                  │
 │                                                                 │
-│  Server sees: commitment_hash + amount                          │
-│  Server does NOT see: bet direction                            │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  3. RESOLUTION                                                  │
-│                                                                 │
-│  ├── Oracle (Chainlink/Pyth): ETH = $5,127 → YES wins         │
-│  ├── Server broadcasts: "Reveal your bets!"                    │
-│  ├── Skibidis submit reveals: direction + secret               │
-│  ├── Server verifies: hash(reveal) == commitment               │
-│  └── Settlement triggered                                       │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  4. SETTLEMENT (Uniswap v4 Hook)                               │
-│                                                                 │
-│  ├── State channel closes                                      │
-│  ├── Uniswap v4 hook processes payouts                        │
-│  ├── Winners receive funds atomically                          │
-│  └── Fanum tax (platform fee) collected                        │
-│                                                                 │
+│  No oracle needed for price markets.                           │
+│  The Uniswap pool IS the oracle.                               │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-### What's Hidden in Cap Mode?
-
-| Data | Server Sees? | Other Skibidis See? |
-|------|--------------|---------------------|
-| Bet amount | Yes (for locking) | No |
-| Bet direction | **No** | No |
-| User identity | Yes (for payouts) | No (only commitment hash) |
 
 ---
 
 ## Cross-Chain Deposits (LI.FI)
 
-### Deposit From Anywhere
-
 ```
 ┌─────────────────────────────────────────┐
-│  FUEL UP YOUR WALLET                    │
+│  DEPOSIT FUNDS                          │
 │                                         │
 │  From Chain:                            │
-│  [Bitcoin] [Solana] [Ethereum]         │
-│  [Arbitrum] [Base] [Polygon] [+more]   │
+│  [Ethereum] [Arbitrum] [Base]          │
+│  [Polygon] [Optimism] [+more]          │
 │                                         │
 │  From Token:                            │
-│  [BTC] [SOL] [ETH] [USDC] [Any]        │
+│  [ETH] [USDC] [USDT] [DAI] [Any]      │
 │                                         │
 │  Amount: [0.1 ETH]                      │
 │  You'll receive: ~$320 USDC             │
 │                                         │
-│  [LFG 🚀]                               │
+│  [LFG]                                  │
 │                                         │
-│  Powered by LI.FI                       │
+│  Deposited USDC goes directly into      │
+│  your Yellow Network state channel      │
 └─────────────────────────────────────────┘
 ```
 
 ---
 
-## Yellow Network Integration
+## Smart Contracts
 
-### Why State Channels?
-
-```
-Traditional betting:
-├── Place bet → $2 gas
-├── Modify bet → $2 gas
-├── Cancel bet → $2 gas
-├── Claim winnings → $2 gas
-└── Total: $8+ in gas for one bet cycle
-
-Yellow state channels:
-├── Open channel → $2 gas (one time)
-├── Place bet → FREE (off-chain)
-├── Modify bet → FREE (off-chain)
-├── Cancel bet → FREE (off-chain)
-├── Close channel → $2 gas (settlement)
-└── Total: $4 for unlimited bets
-
-That's sigma efficiency.
-```
-
-### State Channel Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  YELLOW STATE CHANNEL LIFECYCLE                                 │
-│                                                                 │
-│  1. OPEN CHANNEL                                                │
-│     ├── Deposit USDC to channel contract                       │
-│     ├── One on-chain tx                                        │
-│     └── Channel now active                                      │
-│                                                                 │
-│  2. OFF-CHAIN OPERATIONS (all gasless)                         │
-│     ├── Place bets (signed state updates)                      │
-│     ├── Modify bets                                            │
-│     ├── Cancel bets                                            │
-│     ├── Join markets                                           │
-│     └── All instant, all free                                  │
-│                                                                 │
-│  3. SETTLEMENT                                                  │
-│     ├── Market resolves                                        │
-│     ├── Final state agreed                                     │
-│     ├── Channel closes                                         │
-│     └── Payouts via Uniswap v4 hook                           │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Uniswap v4 Settlement Hook
-
-### HellyHook.sol
+### WthellyAdjudicator.sol (ERC-7824)
 
 ```solidity
-// Simplified concept
+contract WthellyAdjudicator is IAdjudicator {
+    // Validates app session state transitions
+    // Ensures: bet amounts <= user allocation
+    // Ensures: settlement payouts are mathematically correct
+    // Verifies ZK proof at final settlement
+
+    function adjudicate(
+        AdjudicatorParams calldata params,
+        bytes calldata proof
+    ) external returns (bool);
+}
+```
+
+### HellyHook.sol (Uniswap v4)
+
+```solidity
 contract HellyHook is BaseHook {
-
-    struct Market {
-        bytes32 marketId;
-        uint256 yesPool;
-        uint256 noPool;
+    struct PriceMarket {
+        PoolKey pool;
+        uint256 targetPrice;
+        bool isAbove;        // true = "will price go above target?"
         bool resolved;
-        bool outcome; // true = YES won
+        bool outcome;
     }
 
-    // Called when market resolves
-    function settleMarket(
-        bytes32 marketId,
-        bool outcome,
-        bytes[] calldata reveals,
-        bytes[] calldata signatures
-    ) external {
-        // Verify all reveals match commitments
-        for (uint i = 0; i < reveals.length; i++) {
-            require(verifyReveal(reveals[i], signatures[i]), "Invalid reveal");
+    // afterSwap: check if any market conditions are met
+    function afterSwap(...) external override {
+        uint256 currentPrice = getCurrentPrice(key);
+        for (uint i = 0; i < activeMarkets.length; i++) {
+            if (shouldResolve(activeMarkets[i], currentPrice)) {
+                resolve(activeMarkets[i]);
+            }
         }
-
-        // Calculate payouts
-        // Winners split the losing pool (minus fanum tax)
-
-        // Execute atomic payouts via Uniswap
-        // ...
     }
+
+    // Permissionless market creation
+    function createPriceMarket(
+        PoolKey calldata pool,
+        uint256 targetPrice,
+        bool isAbove,
+        uint256 deadline
+    ) external;
 }
 ```
 
 ---
 
-## User Experience
+## Brainrot Terminology
 
-### Landing Page
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                 │
-│                    WTHELLY                        │
-│                                                                 │
-│              Bet on anything. Hidden positions.                 │
-│                    Maximum aura. No cap fr fr.                  │
-│                                                                 │
-│                      [ENTER THE MARKET]                         │
-│                                                                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │  GASLESS    │  │   PRIVATE   │  │  CROSS-CHAIN │            │
-│  │  Bets via   │  │  Hidden     │  │  Deposit     │            │
-│  │  Yellow     │  │  positions  │  │  from        │            │
-│  │  state      │  │  until      │  │  anywhere    │            │
-│  │  channels   │  │  resolution │  │  via LI.FI   │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Market View
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  WTHELLY                         [Connect Wallet] │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  🔥 TRENDING MARKETS                                      │  │
-│  │                                                           │  │
-│  │  "Will ETH hit $5k by March?"                [GYATT 🍑]  │  │
-│  │  Rizz Pool: $127,450  |  Closes in 2d 14h                │  │
-│  │  Mode: CAP (hidden)                                       │  │
-│  │  [BET NOW]                                               │  │
-│  │                                                           │  │
-│  │  "Bitcoin $100k end of year?"                            │  │
-│  │  Rizz Pool: $89,200  |  Closes in 14d                    │  │
-│  │  Mode: NO CAP (public: YES 67% / NO 33%)                 │  │
-│  │  [BET NOW]                                               │  │
-│  │                                                           │  │
-│  │  "Will Solana flip Ethereum?"                            │  │
-│  │  Rizz Pool: $45,000  |  Closes in 30d                    │  │
-│  │  Mode: CAP (hidden)                                       │  │
-│  │  [BET NOW]                                               │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  YOUR STATS                                                     │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Aura: 1,250 🔥  |  Win Rate: 67%  |  Active Bets: 3     │  │
-│  │  Status: SIGMA MODE                                       │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Betting Modal
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  "Will ETH hit $5k by March?"                              [X] │
-│                                                                 │
-│  Mode: CAP (your position stays hidden)                        │
-│                                                                 │
-│  YOUR POSITION                                                  │
-│  ┌─────────────────────┐  ┌─────────────────────┐              │
-│  │                     │  │                     │              │
-│  │        YES          │  │         NO          │              │
-│  │                     │  │    [SELECTED]       │              │
-│  └─────────────────────┘  └─────────────────────┘              │
-│                                                                 │
-│  AMOUNT                                                         │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  $ [100___________]  USDC                               │   │
-│  │  Balance: $1,450.00                                     │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ⚡ This bet is GASLESS (Yellow state channel)                 │
-│                                                                 │
-│  [PLACE BET - NO CAP FR FR]                                    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Web App (React/Next.js)                                        │
-│  ├── Market browsing                                           │
-│  ├── Betting interface                                         │
-│  ├── Commitment generation (client-side)                       │
-│  └── LI.FI deposit widget                                      │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Backend Server                                                 │
-│  ├── Market management                                         │
-│  ├── State channel coordination (Yellow SDK)                   │
-│  ├── Commitment storage                                        │
-│  ├── Oracle integration (Chainlink/Pyth)                      │
-│  └── Settlement trigger                                        │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-          ┌─────────────────┼─────────────────┐
-          ▼                 ▼                 ▼
-    ┌──────────┐      ┌──────────┐      ┌──────────┐
-    │  Yellow  │      │ Uniswap  │      │  LI.FI   │
-    │ Network  │      │   v4     │      │          │
-    │          │      │          │      │ (cross-  │
-    │ • State  │      │ • Helly  │      │  chain   │
-    │   channels│     │   Hook   │      │  deposits│
-    │ • Gasless│      │ • Atomic │      │          │
-    │   bets   │      │   settle │      │          │
-    └──────────┘      └──────────┘      └──────────┘
-          │                 │                 │
-          └─────────────────┼─────────────────┘
-                            │
-                            ▼
-                    ┌──────────────┐
-                    │  Base Chain  │
-                    │  (or Arb)    │
-                    └──────────────┘
-```
-
----
-
-## Database Schema
-
-```sql
--- Users (Skibidis)
-skibidis:
-  id                TEXT PRIMARY KEY
-  wallet_address    ADDRESS
-  username          TEXT
-  aura              INTEGER DEFAULT 0
-  wins              INTEGER DEFAULT 0
-  losses            INTEGER DEFAULT 0
-  squad_id          TEXT REFERENCES squads
-  created_at        TIMESTAMP
-
--- Squads
-squads:
-  id                TEXT PRIMARY KEY
-  name              TEXT
-  leader_id         TEXT REFERENCES skibidis
-  total_aura        INTEGER DEFAULT 0
-  created_at        TIMESTAMP
-
--- Markets
-markets:
-  id                TEXT PRIMARY KEY
-  question          TEXT
-  deadline          TIMESTAMP
-  oracle_source     TEXT
-  target_value      DECIMAL
-  status            ENUM (open, closed, resolved)
-  outcome           BOOLEAN (null until resolved)
-  is_cap            BOOLEAN DEFAULT true  -- private by default
-  yes_pool          DECIMAL DEFAULT 0
-  no_pool           DECIMAL DEFAULT 0
-  created_at        TIMESTAMP
-
--- Bets
-bets:
-  id                TEXT PRIMARY KEY
-  market_id         TEXT REFERENCES markets
-  skibidi_id        TEXT REFERENCES skibidis
-  commitment_hash   TEXT
-  amount            DECIMAL
-  direction         TEXT (null until revealed in cap mode)
-  secret            TEXT (null until revealed)
-  revealed          BOOLEAN DEFAULT false
-  payout            DECIMAL
-  channel_state     TEXT  -- Yellow state channel reference
-  created_at        TIMESTAMP
-
--- Deposits
-deposits:
-  id                TEXT PRIMARY KEY
-  skibidi_id        TEXT REFERENCES skibidis
-  source_chain      TEXT
-  source_token      TEXT
-  source_amount     DECIMAL
-  dest_amount       DECIMAL
-  lifi_tx_hash      TEXT
-  status            ENUM (pending, completed, failed)
-  created_at        TIMESTAMP
-```
-
----
-
-## Prize Track Alignment
-
-| Prize | How We Qualify |
-|-------|----------------|
-| **Yellow Network** ($15k) | State channels for gasless betting - core infrastructure |
-| **Uniswap v4** ($10k) | Custom settlement hook for atomic payouts |
-| **LI.FI** ($6k) | Cross-chain deposits from any chain |
-
-**Total potential: $31k**
+| Term | Meaning |
+|------|---------|
+| **Skibidi** | User/bettor |
+| **Rizz Pool** | The betting pool for a market |
+| **Gyatt** | A market with massive volume |
+| **Fanum Tax** | Platform fee on winnings (2%) |
 
 ---
 
 ## Hackathon Scope
 
 ### Must Have
-- [ ] Web app with market browsing
-- [ ] Yellow state channel integration (gasless bets)
-- [ ] Commitment-reveal flow for private (cap) markets
+- [ ] Yellow Network state channel integration (NitroLite / Clearnode)
+- [ ] TEE app server with encrypted bet handling
+- [ ] Custom WthellyAdjudicator (ERC-7824)
+- [ ] Uniswap v4 price oracle hook (afterSwap auto-resolution)
+- [ ] Web app with market browsing and betting
 - [ ] LI.FI cross-chain deposit flow
-- [ ] Basic Uniswap v4 hook for settlement
-- [ ] Oracle integration (Chainlink or Pyth)
-- [ ] User profile with aura/stats
+- [ ] ZK settlement proof generation
 
 ### Nice to Have
-- [ ] Squad system
-- [ ] Sigma battles (1v1)
-- [ ] Market creation by users
-- [ ] Leaderboards
+- [ ] UMA optimistic oracle for custom market resolution
+- [ ] Permissionless market creation UI
 - [ ] Mobile-responsive design
-- [ ] Sound effects (skibidi toilet audio on win)
-
----
-
-## UI Design Notes
-
-**Brainrot theme BUT clean execution:**
-
-- Modern, minimal layout (not actually chaotic)
-- Dark mode default (#0a0a0a background)
-- Accent colors: Electric blue (#00D4FF) + Hot pink (#FF006E)
-- Typography: Clean sans-serif (Inter/Geist)
-- Brainrot terminology in UI copy, not in visual design
-- Smooth animations, glass morphism cards
-- The memes are in the words, not the aesthetics
-
-**Think:** Discord meets Polymarket, but the copy is unhinged.
+- [ ] Leaderboard
 
 ---
 
 ## The Pitch
 
-> "Prediction markets are cooked. Public odds get gamed. Gas fees are not sigma. We built WTHELLY — private betting with hidden positions, gasless bets via Yellow state channels, and atomic settlement through Uniswap v4. Deposit from any chain with LI.FI. Your bet stays hidden until resolution. Maximum aura. No cap fr fr."
+> "Prediction markets are cooked. Public odds get gamed. We built WTHELLY — where all bets are encrypted inside a TEE, routed through Yellow Network state channels that see nothing, and settled trustlessly via Uniswap v4 price hooks. Your position is invisible until resolution. The Clearnode routing your bets literally cannot read them. Deposit from any chain with LI.FI. No cap fr fr."
