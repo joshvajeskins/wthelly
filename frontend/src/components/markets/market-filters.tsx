@@ -220,3 +220,4 @@ export function MarketFilters({
     </div>
   );
 }
+
