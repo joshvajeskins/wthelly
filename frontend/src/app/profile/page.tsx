@@ -9,9 +9,19 @@ import { formatCurrency, formatAddress } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useUser } from "@/hooks/use-user";
+import { useClearnode } from "@/providers/clearnode-provider";
+import { Wifi, WifiOff, Loader2 } from "lucide-react";
 
 export default function ProfilePage() {
   const { user, isConnected } = useUser();
+  const {
+    isConnected: clearnodeConnected,
+    isAuthenticated: clearnodeAuthenticated,
+    isConnecting: clearnodeConnecting,
+    error: clearnodeError,
+    connect: connectClearnode,
+    disconnect: disconnectClearnode,
+  } = useClearnode();
 
   if (!isConnected || !user) {
     return (
@@ -108,6 +118,87 @@ export default function ProfilePage() {
             <CardContent className="p-6">
               <p className="text-xs text-muted-foreground lowercase font-bold mb-2">total wagered</p>
               <p className="text-3xl font-black text-[#BFFF00]">{formatCurrency(user.totalWagered)}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Yellow Network / Clearnode Section */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl md:text-2xl font-black lowercase text-[#BFFF00]">yellow network</h2>
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  clearnodeAuthenticated
+                    ? "bg-green-500"
+                    : clearnodeConnected
+                      ? "bg-yellow-500"
+                      : "bg-red-500"
+                }`}
+              />
+              <span className="text-xs text-muted-foreground lowercase font-bold">
+                {clearnodeAuthenticated
+                  ? "authenticated"
+                  : clearnodeConnected
+                    ? "connected"
+                    : "disconnected"}
+              </span>
+            </div>
+          </div>
+
+          <Card className="border-2 border-border">
+            <CardContent className="p-6">
+              {clearnodeAuthenticated ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Wifi className="size-5 text-green-500" />
+                    <div>
+                      <p className="text-sm font-bold lowercase">connected to clearnode</p>
+                      <p className="text-xs text-muted-foreground">
+                        state channel active — bets are encrypted end-to-end
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={disconnectClearnode}
+                    className="lowercase"
+                  >
+                    disconnect
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <WifiOff className="size-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-bold lowercase">yellow network</p>
+                      <p className="text-xs text-muted-foreground">
+                        connect for encrypted state channel betting via clearnode
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-[#BFFF00] hover:bg-white text-black font-black lowercase"
+                    onClick={connectClearnode}
+                    disabled={clearnodeConnecting}
+                  >
+                    {clearnodeConnecting ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        connecting...
+                      </>
+                    ) : (
+                      "connect to clearnode"
+                    )}
+                  </Button>
+                </div>
+              )}
+              {clearnodeError && (
+                <p className="mt-3 text-xs text-red-500">{clearnodeError}</p>
+              )}
             </CardContent>
           </Card>
         </div>

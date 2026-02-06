@@ -8,6 +8,7 @@ import {
 } from "@rainbow-me/rainbowkit";
 import "@rainbow-me/rainbowkit/styles.css";
 import { config } from "@/config/wagmi";
+import { ClearnodeProvider } from "@/providers/clearnode-provider";
 
 const queryClient = new QueryClient();
 
@@ -23,7 +24,9 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider theme={customTheme}>
-          {children}
+          <ClearnodeProvider>
+            {children}
+          </ClearnodeProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

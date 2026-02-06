@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@erc7824/nitrolite": "^0.5.3",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/space-grotesk": "^5.2.10",

@@ -2,6 +2,7 @@
 
 import { useAccount } from "wagmi";
 import { useHellyBalance, useUsdcBalance } from "./use-contract-reads";
+import { useClearnode } from "@/providers/clearnode-provider";
 import { USDC_DECIMALS } from "@/config/constants";
 import type { User, ChannelState } from "@/types";
 
@@ -38,13 +39,14 @@ export function useUser() {
 export function useChannelState() {
   const { address } = useAccount();
   const { data: hellyBalanceRaw, isLoading } = useHellyBalance(address);
+  const { isAuthenticated } = useClearnode();
 
   const balance = hellyBalanceRaw
     ? Number(hellyBalanceRaw) / 10 ** USDC_DECIMALS
     : 0;
 
   const channelState: ChannelState = {
-    channelId: "",
+    channelId: isAuthenticated ? "clearnode-session" : "",
     userAddress: address || "0x0",
     balance,
     nonce: 0,
@@ -59,6 +61,7 @@ export function useChannelState() {
     balance,
     lockedAmount: 0,
     isLoading,
+    isAuthenticated,
   };
 }
 
