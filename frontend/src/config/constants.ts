@@ -83,10 +83,16 @@ export const EXTERNAL_LINKS = {
   discord: "https://discord.gg/whatthehelly",
 };
 
-// Contract addresses (placeholders)
+// Contract addresses (Base Sepolia)
 export const CONTRACTS = {
-  hellyHook: "0x0000000000000000000000000000000000000000",
-  yellowChannel: "0x0000000000000000000000000000000000000000",
-  usdc: "0x0000000000000000000000000000000000000000",
+  hellyHook: "0x218dc19b1e7dab45149a564839fffd2d6ed9e1ce" as `0x${string}`,
+  usdc: "0xf678f6cca06fa7b94e59f84229c13942a90a03b8" as `0x${string}`,
 };
+
+// HellyHook deployment block on Base Sepolia (for efficient event scanning)
+export const HELLY_HOOK_DEPLOY_BLOCK = 22380000n;
+
+// USDC decimals
+export const USDC_DECIMALS = 6;
+export const ONE_USDC = BigInt(1e6);
 
