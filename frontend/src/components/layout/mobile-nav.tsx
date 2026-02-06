@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useAccount } from "wagmi"
+import { usePrivyAccount } from "@/hooks/use-privy-account"
 import { cn } from "@/lib/utils"
 import { useContractAdmin } from "@/hooks/use-contract-reads"
 
@@ -15,7 +15,7 @@ const navItems = [
 
 export function MobileNav() {
   const pathname = usePathname()
-  const { address, isConnected } = useAccount()
+  const { address, isConnected } = usePrivyAccount()
   const { data: adminAddress } = useContractAdmin()
   const isAdmin =
     isConnected &&

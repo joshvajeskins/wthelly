@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { toast } from "sonner";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
@@ -175,7 +175,7 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
 }
 
 export default function AdminPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = usePrivyAccount();
   const { data: adminAddress } = useContractAdmin();
   const { markets, isLoading } = useOnChainMarkets();
 

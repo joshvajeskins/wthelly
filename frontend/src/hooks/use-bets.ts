@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useAccount, usePublicClient } from "wagmi";
+import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { parseAbiItem } from "viem";
+import { publicClient } from "@/config/viem";
 import { CONTRACTS, HELLY_HOOK_DEPLOY_BLOCK, USDC_DECIMALS } from "@/config/constants";
 import { getBetSecrets, type BetSecret } from "./use-place-bet";
 import type { Bet } from "@/types";
 
 export function useBets(userAddress?: string) {
-  const { address } = useAccount();
-  const publicClient = usePublicClient();
+  const { address } = usePrivyAccount();
   const targetAddress = userAddress || address;
 
   const [activeBets, setActiveBets] = useState<Bet[]>([]);
@@ -17,7 +17,7 @@ export function useBets(userAddress?: string) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!publicClient || !targetAddress) {
+    if (!targetAddress) {
       setActiveBets([]);
       setBetHistory([]);
       setIsLoading(false);
@@ -31,7 +31,7 @@ export function useBets(userAddress?: string) {
         setIsLoading(true);
 
         // Fetch CommitmentSubmitted events for this user
-        const commitLogs = await publicClient!.getLogs({
+        const commitLogs = await publicClient.getLogs({
           address: CONTRACTS.hellyHook,
           event: parseAbiItem(
             "event CommitmentSubmitted(bytes32 indexed marketId, address indexed bettor, bytes32 commitHash, uint256 amount)"
@@ -42,7 +42,7 @@ export function useBets(userAddress?: string) {
         });
 
         // Fetch BetRevealed events for this user
-        const revealLogs = await publicClient!.getLogs({
+        const revealLogs = await publicClient.getLogs({
           address: CONTRACTS.hellyHook,
           event: parseAbiItem(
             "event BetRevealed(bytes32 indexed marketId, address indexed bettor, bool isYes, uint256 amount)"
@@ -110,7 +110,7 @@ export function useBets(userAddress?: string) {
     return () => {
       cancelled = true;
     };
-  }, [publicClient, targetAddress]);
+  }, [targetAddress]);
 
   const allBets = useMemo(
     () => [...activeBets, ...betHistory],

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useAccount } from "wagmi";
+import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { toast } from "sonner";
 import { CountdownTimer, MarketStats } from "@/components/markets";
 import { BetCard, QuickAmounts } from "@/components/betting";
@@ -32,7 +32,7 @@ export function MarketDetailContent({
     null
   );
   const [amount, setAmount] = useState<string>("");
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = usePrivyAccount();
   const { placeBet, isPlacing, isConfirming, isSuccess, hash, error } = usePlaceBet();
   const { data: hellyBalanceRaw } = useHellyBalance(address);
 

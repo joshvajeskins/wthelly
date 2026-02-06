@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { toast } from "sonner";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
@@ -25,7 +25,7 @@ const DURATIONS = [
 const REVEAL_WINDOW = 3600n; // 1 hour reveal window
 
 export default function CreateMarketPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = usePrivyAccount();
   const { data: adminAddress } = useContractAdmin();
   const { createMarket, hash, isPending, isConfirming, isSuccess, error } =
     useCreateMarket();

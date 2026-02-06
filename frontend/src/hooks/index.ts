@@ -9,3 +9,5 @@ export {
   useContractAdmin,
 } from "./use-contract-reads";
 export { useOnChainMarkets } from "./use-market-events";
+export { usePrivyAccount } from "./use-privy-account";
+export { useWalletClient } from "./use-wallet-client";

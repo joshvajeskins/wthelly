@@ -1,13 +1,13 @@
 "use client";
 
-import { useAccount } from "wagmi";
+import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { useHellyBalance, useUsdcBalance } from "./use-contract-reads";
 import { useClearnode } from "@/providers/clearnode-provider";
 import { USDC_DECIMALS } from "@/config/constants";
 import type { User, ChannelState } from "@/types";
 
 export function useUser() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = usePrivyAccount();
   const { data: hellyBalanceRaw } = useHellyBalance(address);
   const { data: usdcBalanceRaw } = useUsdcBalance(address);
 
@@ -37,7 +37,7 @@ export function useUser() {
 }
 
 export function useChannelState() {
-  const { address } = useAccount();
+  const { address } = usePrivyAccount();
   const { data: hellyBalanceRaw, isLoading } = useHellyBalance(address);
   const { isAuthenticated } = useClearnode();
 
@@ -66,7 +66,7 @@ export function useChannelState() {
 }
 
 export function useWallet() {
-  const { address, isConnected, isConnecting } = useAccount();
+  const { address, isConnected, isConnecting } = usePrivyAccount();
 
   return {
     isConnected,

@@ -8,7 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { useAccount } from "wagmi";
+import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { ClearnodeClient } from "@/lib/clearnode-client";
 
 interface ClearnodeState {
@@ -35,7 +35,7 @@ const CLEARNODE_WS_URL =
   process.env.NEXT_PUBLIC_CLEARNODE_WS_URL || "ws://localhost:8000/ws";
 
 export function ClearnodeProvider({ children }: { children: ReactNode }) {
-  const { address, isConnected: walletConnected } = useAccount();
+  const { address, isConnected: walletConnected } = usePrivyAccount();
   const [client, setClient] = useState<ClearnodeClient | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);

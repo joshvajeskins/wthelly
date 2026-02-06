@@ -1,34 +1,13 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider } from "wagmi";
-import {
-  RainbowKitProvider,
-  darkTheme,
-} from "@rainbow-me/rainbowkit";
-import "@rainbow-me/rainbowkit/styles.css";
-import { config } from "@/config/wagmi";
+import { PrivyProvider } from "@privy-io/react-auth";
+import { PRIVY_APP_ID, privyConfig } from "@/config/privy";
 import { ClearnodeProvider } from "@/providers/clearnode-provider";
-
-const queryClient = new QueryClient();
-
-const customTheme = darkTheme({
-  accentColor: "#BFFF00",
-  accentColorForeground: "black",
-  borderRadius: "none",
-  fontStack: "system",
-});
 
 export function Web3Provider({ children }: { children: React.ReactNode }) {
   return (
-    <WagmiProvider config={config}>
-      <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider theme={customTheme}>
-          <ClearnodeProvider>
-            {children}
-          </ClearnodeProvider>
-        </RainbowKitProvider>
-      </QueryClientProvider>
-    </WagmiProvider>
+    <PrivyProvider appId={PRIVY_APP_ID} config={privyConfig}>
+      <ClearnodeProvider>{children}</ClearnodeProvider>
+    </PrivyProvider>
   );
 }

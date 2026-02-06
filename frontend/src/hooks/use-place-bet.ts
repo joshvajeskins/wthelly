@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { generateSecret, computeCommitmentHash } from "@/lib/commitment";
 import { useSubmitCommitment } from "./use-contract-writes";
 import { ONE_USDC } from "@/config/constants";
@@ -52,7 +52,7 @@ export function getBetSecretForMarket(marketId: `0x${string}`): BetSecret | unde
 }
 
 export function usePlaceBet() {
-  const { address } = useAccount();
+  const { address } = usePrivyAccount();
   const { submitCommitment, hash, isPending, isConfirming, isSuccess, error } =
     useSubmitCommitment();
   const [isPlacing, setIsPlacing] = useState(false);
