@@ -1,3 +1,5 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import Image from "next/image";
@@ -5,10 +7,15 @@ import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { MarketGrid } from "@/components/markets";
-import { getTrendingMarkets } from "@/lib/mock-data";
+import { useMarkets } from "@/hooks/use-markets";
 
 export default function Home() {
-  const trendingMarkets = getTrendingMarkets().slice(0, 4);
+  const { markets, isLoading } = useMarkets();
+
+  // Show top 4 markets by participant count
+  const trendingMarkets = [...markets]
+    .sort((a, b) => b.participantCount - a.participantCount)
+    .slice(0, 4);
 
   return (
     <div className="min-h-screen bg-background">
@@ -71,7 +78,7 @@ export default function Home() {
                 view all
               </Link>
             </div>
-            <MarketGrid markets={trendingMarkets} />
+            <MarketGrid markets={trendingMarkets} loading={isLoading} />
           </div>
         </section>
       </main>
@@ -80,4 +87,3 @@ export default function Home() {
     </div>
   );
 }
-

@@ -1,49 +1,28 @@
 "use client";
 
-import { useState, useMemo } from "react";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { MarketGrid, MarketFilters, MarketFiltersState } from "@/components/markets";
-import { mockMarkets } from "@/lib/mock-data";
+import { useMarkets } from "@/hooks/use-markets";
 
 export default function MarketsPage() {
-  const [filters, setFilters] = useState<MarketFiltersState>({});
+  const { markets, isLoading, filters, updateFilters, clearFilters } = useMarkets();
 
-  // Filter markets based on selected filters
-  const filteredMarkets = useMemo(() => {
-    return mockMarkets.filter((market) => {
-      // Category filter
-      if (filters.category && filters.category !== "all" && market.category !== filters.category) {
-        return false;
-      }
-
-      // Status filter
-      if (filters.status && filters.status !== "all" && market.status !== filters.status) {
-        return false;
-      }
-
-      // Resolution type filter
-      if (filters.resolutionType && filters.resolutionType !== "all" && market.resolutionType !== filters.resolutionType) {
-        return false;
-      }
-
-      // Search query filter
-      if (filters.search) {
-        const query = filters.search.toLowerCase();
-        const matchesQuestion = market.question.toLowerCase().includes(query);
-        const matchesDescription = market.description?.toLowerCase().includes(query);
-        if (!matchesQuestion && !matchesDescription) {
-          return false;
-        }
-      }
-
-      return true;
+  const handleFiltersChange = (newFilters: MarketFiltersState) => {
+    updateFilters({
+      category: newFilters.category === "all" ? null : newFilters.category,
+      status: newFilters.status === "all" ? null : newFilters.status,
+      resolutionType: newFilters.resolutionType === "all" ? null : newFilters.resolutionType,
+      search: newFilters.search,
     });
-  }, [filters]);
+  };
 
-  const clearFilters = () => {
-    setFilters({});
+  const filtersState: MarketFiltersState = {
+    category: filters.category || "all",
+    status: filters.status || "all",
+    resolutionType: filters.resolutionType || "all",
+    search: filters.search,
   };
 
   return (
@@ -61,21 +40,21 @@ export default function MarketsPage() {
           {/* Filters Section */}
           <div className="mb-8">
             <MarketFilters
-              filters={filters}
-              onFiltersChange={setFilters}
+              filters={filtersState}
+              onFiltersChange={handleFiltersChange}
             />
           </div>
 
           {/* Market Grid */}
-          <MarketGrid markets={filteredMarkets} />
+          <MarketGrid markets={markets} loading={isLoading} />
 
           {/* No results message */}
-          {filteredMarkets.length === 0 && (
+          {!isLoading && markets.length === 0 && (
             <div className="text-center py-12">
               <p className="text-muted-foreground text-lg">No markets found matching your filters.</p>
               <button
                 onClick={clearFilters}
-                className="mt-4 text-cyan hover:text-cyan/80 transition-colors"
+                className="mt-4 text-[#BFFF00] hover:text-[#BFFF00]/80 transition-colors"
               >
                 Clear all filters
               </button>

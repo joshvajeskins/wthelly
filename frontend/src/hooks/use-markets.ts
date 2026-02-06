@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { mockMarkets } from "@/lib/mock-data";
+import { useOnChainMarkets } from "./use-market-events";
+import { toFrontendMarket } from "@/lib/market-adapter";
 import { Market, MarketCategory, MarketStatus, ResolutionType } from "@/types";
 
 export interface MarketFilters {
@@ -19,10 +20,14 @@ export function useMarkets(options: UseMarketsOptions = {}) {
   const [filters, setFilters] = useState<MarketFilters>(
     options.initialFilters || {}
   );
-  const [isLoading] = useState(false);
+  const { markets: onChainMarkets, isLoading } = useOnChainMarkets();
+
+  const allMarkets = useMemo(() => {
+    return onChainMarkets.map(toFrontendMarket);
+  }, [onChainMarkets]);
 
   const markets = useMemo(() => {
-    let filtered = [...mockMarkets];
+    let filtered = [...allMarkets];
 
     // Filter by category
     if (filters.category) {
@@ -50,7 +55,7 @@ export function useMarkets(options: UseMarketsOptions = {}) {
     }
 
     return filtered;
-  }, [filters]);
+  }, [allMarkets, filters]);
 
   const updateFilters = (newFilters: Partial<MarketFilters>) => {
     setFilters((prev) => ({ ...prev, ...newFilters }));
@@ -66,19 +71,24 @@ export function useMarkets(options: UseMarketsOptions = {}) {
     updateFilters,
     clearFilters,
     isLoading,
-    totalCount: mockMarkets.length,
+    totalCount: allMarkets.length,
     filteredCount: markets.length,
   };
 }
 
 export function useMarket(id: string) {
+  const { markets: onChainMarkets, isLoading } = useOnChainMarkets();
+
   const market = useMemo(() => {
-    return mockMarkets.find((m) => m.id === id);
-  }, [id]);
+    const onChain = onChainMarkets.find(
+      (m) => m.id.toLowerCase() === id.toLowerCase()
+    );
+    return onChain ? toFrontendMarket(onChain) : undefined;
+  }, [onChainMarkets, id]);
 
   return {
     market,
-    isLoading: false,
-    error: market ? null : "Market not found",
+    isLoading,
+    error: !isLoading && !market ? "Market not found" : null,
   };
 }

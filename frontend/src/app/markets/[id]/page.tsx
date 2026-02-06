@@ -1,25 +1,38 @@
+"use client";
+
+import { use } from "react";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
-import { CountdownTimer, MarketStats } from "@/components/markets";
-import { BetCard, QuickAmounts } from "@/components/betting";
-import { getMarketById, getUserBets, mockUser } from "@/lib/mock-data";
-import { formatCurrency, calculatePayout } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { MarketDetailContent } from "./market-detail-content";
+import { useMarket } from "@/hooks/use-markets";
 
-export default async function MarketDetailPage({
+export default function MarketDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const market = getMarketById(id);
+  const { id } = use(params);
+  const { market, isLoading } = useMarket(id);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Header />
+        <main className="flex-1 container mx-auto px-4 py-8">
+          <div className="animate-pulse space-y-6">
+            <div className="h-8 w-48 bg-muted" />
+            <div className="h-64 bg-muted" />
+          </div>
+        </main>
+        <Footer />
+        <MobileNav />
+      </div>
+    );
+  }
 
   if (!market) {
     return (
@@ -42,14 +55,10 @@ export default async function MarketDetailPage({
     );
   }
 
-  const userBets = getUserBets(mockUser.address).filter(
-    (bet) => bet.marketId === id
-  );
-
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
-      <MarketDetailContent market={market} userBets={userBets} />
+      <MarketDetailContent market={market} userBets={[]} />
       <Footer />
       <MobileNav />
     </div>
