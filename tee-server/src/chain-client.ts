@@ -56,11 +56,12 @@ const unichainSepolia: Chain = {
 export class ChainClient {
   private publicClient: PublicClient;
   private walletClient: WalletClient;
+  private account: ReturnType<typeof privateKeyToAccount>;
   private contractAddress: `0x${string}`;
 
   constructor(teeService: TeeAttestationService) {
     const privateKeyHex = `0x${bytesToHex(teeService.getPrivateKey())}` as `0x${string}`;
-    const account = privateKeyToAccount(privateKeyHex);
+    this.account = privateKeyToAccount(privateKeyHex);
 
     this.publicClient = createPublicClient({
       chain: unichainSepolia,
@@ -68,7 +69,7 @@ export class ChainClient {
     });
 
     this.walletClient = createWalletClient({
-      account,
+      account: this.account,
       chain: unichainSepolia,
       transport: http(config.rpcUrl),
     });
@@ -133,6 +134,8 @@ export class ChainClient {
     const pC: [bigint, bigint] = [BigInt(proof.pC[0]), BigInt(proof.pC[1])];
 
     const hash = await this.walletClient.writeContract({
+      account: this.account,
+      chain: unichainSepolia,
       address: this.contractAddress,
       abi: hellyHookAbi,
       functionName: 'settleMarketWithProof',
