@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -81,7 +81,7 @@ services:
     environment:
       CLEARNODE_CONFIG_DIR_PATH: ${CLEARNODE_CONFIG_DIR_PATH:-/config}
       CLEARNODE_MODE: test
-      UNICHAIN_SEPOLIA_BLOCKCHAIN_RPC: https://sepolia.unichain.org
+      UNICHAIN_SEPOLIA_BLOCKCHAIN_RPC: wss://unichain-sepolia-rpc.publicnode.com
       CLEARNODE_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@database:5432/${POSTGRES_DB:-postgres}?sslmode=disable
       CLEARNODE_LOG_LEVEL: ${CLEARNODE_LOG_LEVEL:-info}
     volumes:
