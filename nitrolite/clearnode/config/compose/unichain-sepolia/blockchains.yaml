@@ -1,0 +1,6 @@
+blockchains:
+- name: unichain_sepolia
+  id: 1301
+  contract_addresses:
+    custody: "DEPLOY_AND_UPDATE_ME"
+    adjudicator: "DEPLOY_AND_UPDATE_ME"

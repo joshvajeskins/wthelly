@@ -41,8 +41,7 @@ contract HellyHook is BaseHook {
     error MarketAlreadyResolved();
     error MarketAlreadySettled();
     error MarketNotClosed();
-    error InsufficientBalance();
-    error ZeroAmount();
+    error InsufficientContractBalance();
     error NothingToSettle();
     error InvalidProof();
     error PayoutMismatch();
@@ -66,9 +65,6 @@ contract HellyHook is BaseHook {
         bytes32 indexed marketId,
         bool outcome
     );
-
-    event Deposited(address indexed user, uint256 amount);
-    event Withdrawn(address indexed user, uint256 amount);
 
     event PayoutClaimed(
         bytes32 indexed marketId,
@@ -108,9 +104,6 @@ contract HellyHook is BaseHook {
     uint256 public platformFeeBps; // 200 = 2%
     IGroth16Verifier public verifier;
     address public teeAddress;
-
-    /// @notice User balances deposited into the contract
-    mapping(address => uint256) public balances;
 
     /// @notice All markets by their ID
     mapping(bytes32 => Market) public markets;
@@ -225,29 +218,6 @@ contract HellyHook is BaseHook {
     }
 
     // =============================================================
-    //                     USER FUNCTIONS
-    // =============================================================
-
-    /// @notice Deposit USDC into the contract for betting
-    /// @param amount Amount of USDC to deposit (in token units)
-    function deposit(uint256 amount) external {
-        if (amount == 0) revert ZeroAmount();
-        usdc.safeTransferFrom(msg.sender, address(this), amount);
-        balances[msg.sender] += amount;
-        emit Deposited(msg.sender, amount);
-    }
-
-    /// @notice Withdraw USDC from the contract
-    /// @param amount Amount of USDC to withdraw
-    function withdraw(uint256 amount) external {
-        if (amount == 0) revert ZeroAmount();
-        if (balances[msg.sender] < amount) revert InsufficientBalance();
-        balances[msg.sender] -= amount;
-        usdc.safeTransfer(msg.sender, amount);
-        emit Withdrawn(msg.sender, amount);
-    }
-
-    // =============================================================
     //                  ZK PROOF SETTLEMENT (TEE)
     // =============================================================
 
@@ -303,17 +273,11 @@ contract HellyHook is BaseHook {
         // Mark as settled
         market.settled = true;
 
-        // Distribute payouts
+        // Emit informational payout records (actual funds managed by Custody.sol)
         for (uint256 i = 0; i < payoutRecipients.length; i++) {
             if (payoutAmounts[i] > 0) {
-                balances[payoutRecipients[i]] += payoutAmounts[i];
                 emit PayoutClaimed(marketId, payoutRecipients[i], payoutAmounts[i]);
             }
-        }
-
-        // Credit platform fee to admin
-        if (platformFeeAmount > 0) {
-            balances[admin] += platformFeeAmount;
         }
 
         emit MarketSettledWithProof(marketId, totalPayouts, platformFeeAmount, payoutRecipients.length);

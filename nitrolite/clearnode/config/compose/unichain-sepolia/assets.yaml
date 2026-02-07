@@ -1,0 +1,7 @@
+assets:
+  - name: "wthelly.USDC"
+    symbol: "wthelly.usd"
+    tokens:
+      - blockchain_id: 1301
+        address: "0xd8f50a509efe389574dd378b0ef03e33558222ea"
+        decimals: 6

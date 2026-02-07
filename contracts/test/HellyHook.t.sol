@@ -111,39 +111,8 @@ contract HellyHookTest is Test {
     }
 
     // =============================================================
-    //                     DEPOSITS & WITHDRAWALS
+    // NOTE: Deposit/withdraw tests removed — funds are now managed by Custody.sol (ERC-7824)
     // =============================================================
-
-    function test_deposit() public {
-        vm.prank(alice);
-        hook.deposit(100 * ONE_USDC);
-        assertEq(hook.balances(alice), 100 * ONE_USDC);
-        assertEq(usdc.balanceOf(address(hook)), 100 * ONE_USDC);
-    }
-
-    function test_deposit_revertZero() public {
-        vm.prank(alice);
-        vm.expectRevert(HellyHook.ZeroAmount.selector);
-        hook.deposit(0);
-    }
-
-    function test_withdraw() public {
-        vm.prank(alice);
-        hook.deposit(100 * ONE_USDC);
-
-        vm.prank(alice);
-        hook.withdraw(50 * ONE_USDC);
-        assertEq(hook.balances(alice), 50 * ONE_USDC);
-    }
-
-    function test_withdraw_revertInsufficient() public {
-        vm.prank(alice);
-        hook.deposit(100 * ONE_USDC);
-
-        vm.prank(alice);
-        vm.expectRevert(HellyHook.InsufficientBalance.selector);
-        hook.withdraw(200 * ONE_USDC);
-    }
 
     // =============================================================
     //                     MARKET RESOLUTION
