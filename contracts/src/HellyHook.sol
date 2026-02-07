@@ -10,6 +10,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 interface IGroth16Verifier {
     function verifyProof(
@@ -21,11 +22,12 @@ interface IGroth16Verifier {
 }
 
 /// @title HellyHook
-/// @notice Prediction market hook with commit-reveal pattern for private betting
+/// @notice Prediction market hook with price oracle and ZK proof settlement
 /// @dev Extends BaseHook to integrate with Uniswap V4 — monitors swaps via afterSwap
 contract HellyHook is BaseHook {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
 
     // =============================================================
     //                           ERRORS
@@ -39,14 +41,7 @@ contract HellyHook is BaseHook {
     error MarketAlreadyResolved();
     error MarketAlreadySettled();
     error MarketNotClosed();
-    error BettingClosed();
-    error RevealWindowClosed();
-    error RevealWindowNotOpen();
     error InsufficientBalance();
-    error AlreadyCommitted();
-    error CommitmentDoesNotExist();
-    error AlreadyRevealed();
-    error InvalidCommitmentHash();
     error ZeroAmount();
     error NothingToSettle();
     error InvalidProof();
@@ -62,7 +57,9 @@ contract HellyHook is BaseHook {
         bytes32 indexed marketId,
         string question,
         uint256 deadline,
-        uint256 revealDeadline
+        PoolId poolId,
+        uint160 priceTarget,
+        bool priceAbove
     );
 
     event MarketResolved(
@@ -70,30 +67,8 @@ contract HellyHook is BaseHook {
         bool outcome
     );
 
-    event MarketSettled(
-        bytes32 indexed marketId,
-        uint256 totalPayout,
-        uint256 platformFee,
-        uint256 winners,
-        uint256 losers
-    );
-
     event Deposited(address indexed user, uint256 amount);
     event Withdrawn(address indexed user, uint256 amount);
-
-    event CommitmentSubmitted(
-        bytes32 indexed marketId,
-        address indexed bettor,
-        bytes32 commitHash,
-        uint256 amount
-    );
-
-    event BetRevealed(
-        bytes32 indexed marketId,
-        address indexed bettor,
-        bool isYes,
-        uint256 amount
-    );
 
     event PayoutClaimed(
         bytes32 indexed marketId,
@@ -108,6 +83,8 @@ contract HellyHook is BaseHook {
         uint256 numPayouts
     );
 
+    event PriceUpdated(PoolId indexed poolId, uint160 sqrtPriceX96, uint256 timestamp);
+
     // =============================================================
     //                           STRUCTS
     // =============================================================
@@ -115,21 +92,11 @@ contract HellyHook is BaseHook {
     struct Market {
         string question;
         uint256 deadline;
-        uint256 revealDeadline;
         bool resolved;
         bool outcome;
         uint256 totalYes;
         uint256 totalNo;
         bool settled;
-        uint256 commitCount;
-    }
-
-    struct Commitment {
-        bytes32 commitHash;
-        uint256 amount;
-        address bettor;
-        bool revealed;
-        bool isYes;
     }
 
     // =============================================================
@@ -148,14 +115,17 @@ contract HellyHook is BaseHook {
     /// @notice All markets by their ID
     mapping(bytes32 => Market) public markets;
 
-    /// @notice Commitments per market: marketId => index => Commitment
-    mapping(bytes32 => mapping(uint256 => Commitment)) public commitments;
-
-    /// @notice Track bettor's commit index (1-indexed, 0 means no commitment)
-    mapping(bytes32 => mapping(address => uint256)) public bettorCommitIndex;
-
     /// @notice Track which markets exist
     mapping(bytes32 => bool) public marketExists;
+
+    // Price oracle state
+    mapping(PoolId => uint160) public lastSqrtPriceX96;
+    mapping(PoolId => uint256) public lastPriceTimestamp;
+
+    // Link markets to pools for auto-resolution
+    mapping(bytes32 => PoolId) public marketPoolId;
+    mapping(bytes32 => uint160) public marketPriceTarget;
+    mapping(bytes32 => bool) public marketPriceAbove;
 
     // =============================================================
     //                         CONSTRUCTOR
@@ -184,37 +154,42 @@ contract HellyHook is BaseHook {
     //                     ADMIN FUNCTIONS
     // =============================================================
 
-    /// @notice Create a new prediction market
+    /// @notice Create a new prediction market linked to a pool price target
     /// @param marketId Unique identifier for the market
     /// @param question The prediction question
     /// @param deadline Timestamp when betting closes
-    /// @param revealWindow Duration in seconds for the reveal window after resolution
+    /// @param poolId The Uniswap V4 pool to track for price resolution
+    /// @param priceTarget The sqrtPriceX96 target for resolution
+    /// @param priceAbove If true, outcome is YES when price > target; if false, YES when price < target
     function createMarket(
         bytes32 marketId,
         string calldata question,
         uint256 deadline,
-        uint256 revealWindow
+        PoolId poolId,
+        uint160 priceTarget,
+        bool priceAbove
     ) external onlyAdmin {
         if (marketExists[marketId]) revert MarketAlreadyExists();
 
         markets[marketId] = Market({
             question: question,
             deadline: deadline,
-            revealDeadline: deadline + revealWindow,
             resolved: false,
             outcome: false,
             totalYes: 0,
             totalNo: 0,
-            settled: false,
-            commitCount: 0
+            settled: false
         });
 
         marketExists[marketId] = true;
+        marketPoolId[marketId] = poolId;
+        marketPriceTarget[marketId] = priceTarget;
+        marketPriceAbove[marketId] = priceAbove;
 
-        emit MarketCreated(marketId, question, deadline, deadline + revealWindow);
+        emit MarketCreated(marketId, question, deadline, poolId, priceTarget, priceAbove);
     }
 
-    /// @notice Resolve a market with the outcome
+    /// @notice Resolve a market with the outcome (admin manual resolution)
     /// @param marketId The market to resolve
     /// @param outcome true = YES won, false = NO won
     function resolveMarket(bytes32 marketId, bool outcome) external onlyAdmin {
@@ -225,6 +200,27 @@ contract HellyHook is BaseHook {
         market.resolved = true;
         market.outcome = outcome;
 
+        emit MarketResolved(marketId, outcome);
+    }
+
+    /// @notice Resolve a market automatically based on the oracle price
+    /// @param marketId The market to resolve
+    function resolveMarketFromOracle(bytes32 marketId) external {
+        if (!marketExists[marketId]) revert MarketDoesNotExist();
+        Market storage m = markets[marketId];
+        if (block.timestamp < m.deadline) revert MarketNotClosed();
+        if (m.resolved) revert MarketAlreadyResolved();
+
+        PoolId poolId = marketPoolId[marketId];
+        uint160 currentPrice = lastSqrtPriceX96[poolId];
+        uint160 target = marketPriceTarget[marketId];
+
+        bool outcome = marketPriceAbove[marketId]
+            ? currentPrice > target
+            : currentPrice < target;
+
+        m.resolved = true;
+        m.outcome = outcome;
         emit MarketResolved(marketId, outcome);
     }
 
@@ -251,171 +247,6 @@ contract HellyHook is BaseHook {
         emit Withdrawn(msg.sender, amount);
     }
 
-    /// @notice Submit a commitment to bet on a market
-    /// @param marketId The market to bet on
-    /// @param commitHash keccak256(abi.encode(marketId, isYes, amount, secret, user))
-    /// @param amount Amount to bet (locked from balance)
-    function submitCommitment(
-        bytes32 marketId,
-        bytes32 commitHash,
-        uint256 amount
-    ) external {
-        if (!marketExists[marketId]) revert MarketDoesNotExist();
-        Market storage market = markets[marketId];
-        if (block.timestamp > market.deadline) revert BettingClosed();
-        if (market.resolved) revert MarketAlreadyResolved();
-        if (amount == 0) revert ZeroAmount();
-        if (balances[msg.sender] < amount) revert InsufficientBalance();
-        if (bettorCommitIndex[marketId][msg.sender] != 0) revert AlreadyCommitted();
-
-        // Lock funds
-        balances[msg.sender] -= amount;
-
-        // Store commitment (1-indexed)
-        market.commitCount++;
-        uint256 index = market.commitCount;
-
-        commitments[marketId][index] = Commitment({
-            commitHash: commitHash,
-            amount: amount,
-            bettor: msg.sender,
-            revealed: false,
-            isYes: false
-        });
-
-        bettorCommitIndex[marketId][msg.sender] = index;
-
-        emit CommitmentSubmitted(marketId, msg.sender, commitHash, amount);
-    }
-
-    /// @notice Reveal a bet after market resolution
-    /// @param marketId The market
-    /// @param isYes The direction of the bet
-    /// @param secret The secret used in the commitment
-    function revealBet(
-        bytes32 marketId,
-        bool isYes,
-        bytes32 secret
-    ) external {
-        if (!marketExists[marketId]) revert MarketDoesNotExist();
-        Market storage market = markets[marketId];
-        if (!market.resolved) revert MarketNotResolved();
-        if (block.timestamp > market.revealDeadline) revert RevealWindowClosed();
-
-        uint256 index = bettorCommitIndex[marketId][msg.sender];
-        if (index == 0) revert CommitmentDoesNotExist();
-
-        Commitment storage commitment = commitments[marketId][index];
-        if (commitment.revealed) revert AlreadyRevealed();
-
-        // Verify the commitment hash
-        bytes32 computedHash = getCommitmentHash(
-            marketId,
-            isYes,
-            commitment.amount,
-            secret,
-            msg.sender
-        );
-
-        if (computedHash != commitment.commitHash) revert InvalidCommitmentHash();
-
-        // Mark as revealed
-        commitment.revealed = true;
-        commitment.isYes = isYes;
-
-        // Update market pools
-        if (isYes) {
-            market.totalYes += commitment.amount;
-        } else {
-            market.totalNo += commitment.amount;
-        }
-
-        emit BetRevealed(marketId, msg.sender, isYes, commitment.amount);
-    }
-
-    // =============================================================
-    //                     SETTLEMENT
-    // =============================================================
-
-    /// @notice Settle a market and distribute payouts
-    /// @param marketId The market to settle
-    function settleMarket(bytes32 marketId) external onlyAdmin {
-        if (!marketExists[marketId]) revert MarketDoesNotExist();
-        Market storage market = markets[marketId];
-        if (!market.resolved) revert MarketNotResolved();
-        if (market.settled) revert MarketAlreadySettled();
-        if (market.commitCount == 0) revert NothingToSettle();
-
-        market.settled = true;
-
-        uint256 winnerPool = market.outcome ? market.totalYes : market.totalNo;
-        uint256 loserPool = market.outcome ? market.totalNo : market.totalYes;
-
-        // Include unrevealed bets in the loser pool (forfeited)
-        uint256 unrevealedTotal = 0;
-        uint256 winnerCount = 0;
-        uint256 loserCount = 0;
-
-        for (uint256 i = 1; i <= market.commitCount; i++) {
-            Commitment storage c = commitments[marketId][i];
-            if (!c.revealed) {
-                // Unrevealed bets are forfeited
-                unrevealedTotal += c.amount;
-            } else if (c.isYes == market.outcome) {
-                winnerCount++;
-            } else {
-                loserCount++;
-            }
-        }
-
-        // Total pool available for distribution = loser pool + unrevealed (forfeited)
-        uint256 distributablePool = loserPool + unrevealedTotal;
-
-        // Calculate platform fee
-        uint256 fee = (distributablePool * platformFeeBps) / 10000;
-        uint256 netDistributable = distributablePool - fee;
-
-        // Credit platform fee to admin
-        if (fee > 0) {
-            balances[admin] += fee;
-        }
-
-        // Distribute to winners proportionally
-        if (winnerPool > 0 && netDistributable > 0) {
-            for (uint256 i = 1; i <= market.commitCount; i++) {
-                Commitment storage c = commitments[marketId][i];
-                if (c.revealed && c.isYes == market.outcome) {
-                    // Winner gets their original bet back + proportional share of distributable pool
-                    uint256 share = (c.amount * netDistributable) / winnerPool;
-                    balances[c.bettor] += c.amount + share;
-
-                    emit PayoutClaimed(marketId, c.bettor, c.amount + share);
-                }
-            }
-        } else if (winnerPool > 0) {
-            // No losers, return original bets to winners
-            for (uint256 i = 1; i <= market.commitCount; i++) {
-                Commitment storage c = commitments[marketId][i];
-                if (c.revealed && c.isYes == market.outcome) {
-                    balances[c.bettor] += c.amount;
-                    emit PayoutClaimed(marketId, c.bettor, c.amount);
-                }
-            }
-        }
-        // If winnerPool == 0, all funds go to platform (edge case)
-        if (winnerPool == 0) {
-            balances[admin] += netDistributable;
-        }
-
-        emit MarketSettled(
-            marketId,
-            winnerPool > 0 ? winnerPool + netDistributable : 0,
-            fee,
-            winnerCount,
-            loserCount
-        );
-    }
-
     // =============================================================
     //                  ZK PROOF SETTLEMENT (TEE)
     // =============================================================
@@ -425,6 +256,7 @@ contract HellyHook is BaseHook {
     /// @param marketId The market to settle
     /// @param payoutRecipients Addresses to receive payouts (order matches TEE computation)
     /// @param payoutAmounts Payout amount per recipient
+    /// @param totalPool Total pool computed by the TEE from state channel data
     /// @param platformFeeAmount Computed platform fee
     /// @param _pA Groth16 proof point A
     /// @param _pB Groth16 proof point B
@@ -433,6 +265,7 @@ contract HellyHook is BaseHook {
         bytes32 marketId,
         address[] calldata payoutRecipients,
         uint256[] calldata payoutAmounts,
+        uint256 totalPool,
         uint256 platformFeeAmount,
         uint[2] calldata _pA,
         uint[2][2] calldata _pB,
@@ -445,15 +278,8 @@ contract HellyHook is BaseHook {
         Market storage market = markets[marketId];
         if (!market.resolved) revert MarketNotResolved();
         if (market.settled) revert MarketAlreadySettled();
-        if (market.commitCount == 0) revert NothingToSettle();
         if (payoutRecipients.length != payoutAmounts.length) revert PayoutMismatch();
         if (address(verifier) == address(0)) revert InvalidProof();
-
-        // Compute total pool from stored commitments
-        uint256 totalPool = 0;
-        for (uint256 i = 1; i <= market.commitCount; i++) {
-            totalPool += commitments[marketId][i].amount;
-        }
 
         // Verify conservation: sum(payouts) + fee == totalPool
         uint256 totalPayouts = 0;
@@ -526,16 +352,18 @@ contract HellyHook is BaseHook {
         });
     }
 
-    event SwapMonitored(PoolId indexed poolId, int128 amount0, int128 amount1);
-
     function _afterSwap(
         address,
         PoolKey calldata key,
         SwapParams calldata,
-        BalanceDelta delta,
+        BalanceDelta,
         bytes calldata
     ) internal override returns (bytes4, int128) {
-        emit SwapMonitored(key.toId(), delta.amount0(), delta.amount1());
+        PoolId poolId = key.toId();
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+        lastSqrtPriceX96[poolId] = sqrtPriceX96;
+        lastPriceTimestamp[poolId] = block.timestamp;
+        emit PriceUpdated(poolId, sqrtPriceX96, block.timestamp);
         return (this.afterSwap.selector, 0);
     }
 
@@ -546,57 +374,25 @@ contract HellyHook is BaseHook {
     //                       VIEW FUNCTIONS
     // =============================================================
 
-    /// @notice Compute the commitment hash for given parameters
-    function getCommitmentHash(
-        bytes32 marketId,
-        bool isYes,
-        uint256 amount,
-        bytes32 secret,
-        address user
-    ) public pure returns (bytes32) {
-        return keccak256(abi.encode(marketId, isYes, amount, secret, user));
-    }
-
     /// @notice Get market details
     function getMarket(bytes32 marketId) external view returns (
         string memory question,
         uint256 deadline,
-        uint256 revealDeadline,
         bool resolved,
         bool outcome,
         uint256 totalYes,
         uint256 totalNo,
-        bool settled,
-        uint256 commitCount
+        bool settled
     ) {
         Market storage m = markets[marketId];
         return (
             m.question,
             m.deadline,
-            m.revealDeadline,
             m.resolved,
             m.outcome,
             m.totalYes,
             m.totalNo,
-            m.settled,
-            m.commitCount
+            m.settled
         );
-    }
-
-    /// @notice Get a commitment by market and index
-    function getCommitment(bytes32 marketId, uint256 index) external view returns (
-        bytes32 commitHash,
-        uint256 amount,
-        address bettor,
-        bool revealed,
-        bool isYes
-    ) {
-        Commitment storage c = commitments[marketId][index];
-        return (c.commitHash, c.amount, c.bettor, c.revealed, c.isYes);
-    }
-
-    /// @notice Get a bettor's commit index for a market (0 = no commitment)
-    function getBettorCommitIndex(bytes32 marketId, address bettor) external view returns (uint256) {
-        return bettorCommitIndex[marketId][bettor];
     }
 }
