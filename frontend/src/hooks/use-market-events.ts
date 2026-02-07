@@ -10,13 +10,11 @@ export interface OnChainMarket {
   id: `0x${string}`;
   question: string;
   deadline: bigint;
-  revealDeadline: bigint;
   resolved: boolean;
   outcome: boolean;
   totalYes: bigint;
   totalNo: bigint;
   settled: boolean;
-  commitCount: bigint;
   createdAtTimestamp: number; // unix ms from block timestamp
 }
 
@@ -34,7 +32,7 @@ export function useOnChainMarkets() {
       const logs = await publicClient.getLogs({
         address: CONTRACTS.hellyHook,
         event: parseAbiItem(
-          "event MarketCreated(bytes32 indexed marketId, string question, uint256 deadline, uint256 revealDeadline)"
+          "event MarketCreated(bytes32 indexed marketId, string question, uint256 deadline, bytes32 poolId, uint160 priceTarget, bool priceAbove)"
         ),
         fromBlock: HELLY_HOOK_DEPLOY_BLOCK,
         toBlock: "latest",
@@ -62,26 +60,22 @@ export function useOnChainMarkets() {
         const [
           question,
           deadline,
-          revealDeadline,
           resolved,
           outcome,
           totalYes,
           totalNo,
           settled,
-          commitCount,
-        ] = data as [string, bigint, bigint, boolean, boolean, bigint, bigint, boolean, bigint];
+        ] = data as [string, bigint, boolean, boolean, bigint, bigint, boolean];
 
         return {
           id: marketId,
           question,
           deadline,
-          revealDeadline,
           resolved,
           outcome,
           totalYes,
           totalNo,
           settled,
-          commitCount,
           createdAtTimestamp: blockTimestamps.get(log.blockNumber) || Date.now(),
         };
       });

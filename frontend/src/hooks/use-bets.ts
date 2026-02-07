@@ -2,9 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { usePrivyAccount } from "@/hooks/use-privy-account";
-import { parseAbiItem } from "viem";
-import { publicClient } from "@/config/viem";
-import { CONTRACTS, HELLY_HOOK_DEPLOY_BLOCK, USDC_DECIMALS } from "@/config/constants";
+import { USDC_DECIMALS } from "@/config/constants";
 import { getBetSecrets, type BetSecret } from "./use-place-bet";
 import type { Bet } from "@/types";
 
@@ -24,92 +22,41 @@ export function useBets(userAddress?: string) {
       return;
     }
 
-    let cancelled = false;
+    // In pure state channel mode, bets are tracked locally via localStorage
+    try {
+      setIsLoading(true);
 
-    async function fetchBets() {
-      try {
-        setIsLoading(true);
+      const secrets = getBetSecrets();
+      const active: Bet[] = [];
+      const history: Bet[] = [];
 
-        // Fetch CommitmentSubmitted events for this user
-        const commitLogs = await publicClient.getLogs({
-          address: CONTRACTS.hellyHook,
-          event: parseAbiItem(
-            "event CommitmentSubmitted(bytes32 indexed marketId, address indexed bettor, bytes32 commitHash, uint256 amount)"
-          ),
-          args: { bettor: targetAddress as `0x${string}` },
-          fromBlock: HELLY_HOOK_DEPLOY_BLOCK,
-          toBlock: "latest",
-        });
+      for (const secret of secrets) {
+        const amount = Number(secret.amount) / 10 ** USDC_DECIMALS;
 
-        // Fetch BetRevealed events for this user
-        const revealLogs = await publicClient.getLogs({
-          address: CONTRACTS.hellyHook,
-          event: parseAbiItem(
-            "event BetRevealed(bytes32 indexed marketId, address indexed bettor, bool isYes, uint256 amount)"
-          ),
-          args: { bettor: targetAddress as `0x${string}` },
-          fromBlock: HELLY_HOOK_DEPLOY_BLOCK,
-          toBlock: "latest",
-        });
+        const bet: Bet = {
+          id: `${secret.marketId}-${secret.timestamp}`,
+          marketId: secret.marketId,
+          userAddress: targetAddress!,
+          amount,
+          direction: secret.isYes ? "yes" : "no",
+          status: "active", // State channel bets are active until settlement
+          createdAt: new Date(secret.timestamp),
+        };
 
-        if (cancelled) return;
-
-        // Get localStorage secrets for direction info
-        const secrets = getBetSecrets();
-        const secretMap = new Map<string, BetSecret>();
-        for (const s of secrets) {
-          secretMap.set(s.marketId.toLowerCase(), s);
-        }
-
-        // Map revealed bets
-        const revealedMarkets = new Set(
-          revealLogs.map((l) => (l.args.marketId as string).toLowerCase())
-        );
-
-        const active: Bet[] = [];
-        const history: Bet[] = [];
-
-        for (const log of commitLogs) {
-          const marketId = log.args.marketId as `0x${string}`;
-          const amount = Number(log.args.amount as bigint) / 10 ** USDC_DECIMALS;
-          const isRevealed = revealedMarkets.has(marketId.toLowerCase());
-          const secret = secretMap.get(marketId.toLowerCase());
-
-          const bet: Bet = {
-            id: `${marketId}-${log.transactionHash}`,
-            marketId,
-            userAddress: targetAddress!,
-            amount,
-            direction: secret ? (secret.isYes ? "yes" : "no") : undefined,
-            status: isRevealed ? "settled" : "active",
-            createdAt: new Date(), // Could fetch block timestamp but not critical
-          };
-
-          if (isRevealed) {
-            history.push(bet);
-          } else {
-            active.push(bet);
-          }
-        }
-
-        if (!cancelled) {
-          setActiveBets(active);
-          setBetHistory(history);
-        }
-      } catch (err) {
-        console.error("Failed to fetch bets:", err);
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
+        if (secret.appSessionId) {
+          active.push(bet);
+        } else {
+          history.push(bet);
         }
       }
+
+      setActiveBets(active);
+      setBetHistory(history);
+    } catch (err) {
+      console.error("Failed to fetch bets:", err);
+    } finally {
+      setIsLoading(false);
     }
-
-    fetchBets();
-
-    return () => {
-      cancelled = true;
-    };
   }, [targetAddress]);
 
   const allBets = useMemo(

@@ -11,9 +11,9 @@ import { TxStatus } from "@/components/shared/tx-status";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { keccak256, encodePacked } from "viem";
 import { useCreateMarket } from "@/hooks/use-contract-writes";
 import { useContractAdmin } from "@/hooks/use-contract-reads";
-import { generateMarketId } from "@/lib/commitment";
 
 const DURATIONS = [
   { label: "1h", seconds: 3600 },
@@ -22,7 +22,9 @@ const DURATIONS = [
   { label: "7d", seconds: 604800 },
 ];
 
-const REVEAL_WINDOW = 3600n; // 1 hour reveal window
+function generateMarketId(question: string): `0x${string}` {
+  return keccak256(encodePacked(["string"], [question]));
+}
 
 export default function CreateMarketPage() {
   const { address, isConnected } = usePrivyAccount();
@@ -33,6 +35,9 @@ export default function CreateMarketPage() {
   const [question, setQuestion] = useState("");
   const [category, setCategory] = useState("crypto");
   const [duration, setDuration] = useState(86400);
+  const [poolId, setPoolId] = useState("");
+  const [priceTarget, setPriceTarget] = useState("");
+  const [priceAbove, setPriceAbove] = useState(true);
   const [created, setCreated] = useState(false);
 
   const isAdmin =
@@ -46,8 +51,10 @@ export default function CreateMarketPage() {
     try {
       const marketId = generateMarketId(question);
       const deadline = BigInt(Math.floor(Date.now() / 1000) + duration);
+      const poolIdHex = (poolId || "0x0000000000000000000000000000000000000000000000000000000000000000") as `0x${string}`;
+      const priceTargetBigInt = BigInt(priceTarget || "0");
 
-      await createMarket(marketId, question, deadline, REVEAL_WINDOW);
+      await createMarket(marketId, question, deadline, poolIdHex, priceTargetBigInt, priceAbove);
       toast.success("market created fr fr!");
       setCreated(true);
     } catch (err: any) {
@@ -126,16 +133,16 @@ export default function CreateMarketPage() {
                 market created fr fr
               </h2>
               <p className="text-muted-foreground lowercase mb-2">
-                your market is live on base sepolia.
+                your market is live on unichain sepolia.
               </p>
               {hash && (
                 <a
-                  href={`https://sepolia.basescan.org/tx/${hash}`}
+                  href={`https://sepolia.uniscan.xyz/tx/${hash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-[#BFFF00] hover:underline lowercase"
                 >
-                  view on basescan
+                  view on uniscan
                 </a>
               )}
               <div className="mt-6">

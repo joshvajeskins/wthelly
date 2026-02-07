@@ -111,26 +111,6 @@ export function useWithdraw() {
   return { withdraw, hash, isPending, isConfirming, isSuccess, error };
 }
 
-export function useSubmitCommitment() {
-  const { writeContractAsync, hash, isPending, isConfirming, isSuccess, error } =
-    useContractWrite();
-
-  const submitCommitment = async (
-    marketId: `0x${string}`,
-    commitHash: `0x${string}`,
-    amount: bigint
-  ) => {
-    return writeContractAsync({
-      address: CONTRACTS.hellyHook,
-      abi: HELLY_HOOK_ABI as Abi,
-      functionName: "submitCommitment",
-      args: [marketId, commitHash, amount],
-    });
-  };
-
-  return { submitCommitment, hash, isPending, isConfirming, isSuccess, error };
-}
-
 export function useCreateMarket() {
   const { writeContractAsync, hash, isPending, isConfirming, isSuccess, error } =
     useContractWrite();
@@ -139,37 +119,19 @@ export function useCreateMarket() {
     marketId: `0x${string}`,
     question: string,
     deadline: bigint,
-    revealWindow: bigint
+    poolId: `0x${string}`,
+    priceTarget: bigint,
+    priceAbove: boolean
   ) => {
     return writeContractAsync({
       address: CONTRACTS.hellyHook,
       abi: HELLY_HOOK_ABI as Abi,
       functionName: "createMarket",
-      args: [marketId, question, deadline, revealWindow],
+      args: [marketId, question, deadline, poolId, priceTarget, priceAbove],
     });
   };
 
   return { createMarket, hash, isPending, isConfirming, isSuccess, error };
-}
-
-export function useRevealBet() {
-  const { writeContractAsync, hash, isPending, isConfirming, isSuccess, error } =
-    useContractWrite();
-
-  const revealBet = async (
-    marketId: `0x${string}`,
-    isYes: boolean,
-    secret: `0x${string}`
-  ) => {
-    return writeContractAsync({
-      address: CONTRACTS.hellyHook,
-      abi: HELLY_HOOK_ABI as Abi,
-      functionName: "revealBet",
-      args: [marketId, isYes, secret],
-    });
-  };
-
-  return { revealBet, hash, isPending, isConfirming, isSuccess, error };
 }
 
 export function useResolveMarket() {
@@ -188,20 +150,20 @@ export function useResolveMarket() {
   return { resolveMarket, hash, isPending, isConfirming, isSuccess, error };
 }
 
-export function useSettleMarket() {
+export function useResolveMarketFromOracle() {
   const { writeContractAsync, hash, isPending, isConfirming, isSuccess, error } =
     useContractWrite();
 
-  const settleMarket = async (marketId: `0x${string}`) => {
+  const resolveFromOracle = async (marketId: `0x${string}`) => {
     return writeContractAsync({
       address: CONTRACTS.hellyHook,
       abi: HELLY_HOOK_ABI as Abi,
-      functionName: "settleMarket",
+      functionName: "resolveMarketFromOracle",
       args: [marketId],
     });
   };
 
-  return { settleMarket, hash, isPending, isConfirming, isSuccess, error };
+  return { resolveFromOracle, hash, isPending, isConfirming, isSuccess, error };
 }
 
 export function useSettleMarketWithProof() {
@@ -212,6 +174,7 @@ export function useSettleMarketWithProof() {
     marketId: `0x${string}`,
     payoutRecipients: `0x${string}`[],
     payoutAmounts: bigint[],
+    totalPool: bigint,
     platformFeeAmount: bigint,
     pA: [bigint, bigint],
     pB: [[bigint, bigint], [bigint, bigint]],
@@ -221,7 +184,7 @@ export function useSettleMarketWithProof() {
       address: CONTRACTS.hellyHook,
       abi: HELLY_HOOK_ABI as Abi,
       functionName: "settleMarketWithProof",
-      args: [marketId, payoutRecipients, payoutAmounts, platformFeeAmount, pA, pB, pC],
+      args: [marketId, payoutRecipients, payoutAmounts, totalPool, platformFeeAmount, pA, pB, pC],
     });
   };
 

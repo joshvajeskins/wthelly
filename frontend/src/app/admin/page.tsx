@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useContractAdmin } from "@/hooks/use-contract-reads";
-import { useResolveMarket, useSettleMarket, useSettleMarketWithProof } from "@/hooks/use-contract-writes";
+import { useResolveMarket, useResolveMarketFromOracle, useSettleMarketWithProof } from "@/hooks/use-contract-writes";
 import { useOnChainMarkets, type OnChainMarket } from "@/hooks/use-market-events";
 import { USDC_DECIMALS, CLEARNODE_CONTRACTS } from "@/config/constants";
 import { useTee } from "@/providers/tee-provider";
@@ -21,7 +21,7 @@ import { useStateChannel } from "@/hooks/use-state-channel";
 
 function MarketAdminCard({ market }: { market: OnChainMarket }) {
   const resolveHook = useResolveMarket();
-  const settleHook = useSettleMarket();
+  const resolveOracleHook = useResolveMarketFromOracle();
   const settleWithProofHook = useSettleMarketWithProof();
   const { teeClient, isConnected: teeConnected } = useTee();
   const { isAuthenticated: clearnodeConnected } = useClearnode();
@@ -51,15 +51,15 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
     }
   };
 
-  const handleSettle = async () => {
+  const handleResolveFromOracle = async () => {
     try {
-      await settleHook.settleMarket(market.id);
-      toast.success("market settled — payouts distributed");
+      await resolveOracleHook.resolveFromOracle(market.id);
+      toast.success("market resolved from price oracle");
     } catch (err: any) {
       if (err.message?.includes("User rejected")) {
         toast.error("transaction rejected");
       } else {
-        toast.error("failed to settle market");
+        toast.error("failed to resolve from oracle");
       }
     }
   };
@@ -98,6 +98,7 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
         market.id,
         recipients,
         amounts,
+        BigInt(settlement.totalPool),
         BigInt(settlement.platformFee),
         pA,
         pB,
@@ -175,8 +176,8 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
   const isTxPending =
     resolveHook.isPending ||
     resolveHook.isConfirming ||
-    settleHook.isPending ||
-    settleHook.isConfirming ||
+    resolveOracleHook.isPending ||
+    resolveOracleHook.isConfirming ||
     settleWithProofHook.isPending ||
     settleWithProofHook.isConfirming ||
     teeSettling ||
@@ -199,7 +200,7 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
       </CardHeader>
       <CardContent className="space-y-3">
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-2 text-xs">
+        <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
             <p className="text-muted-foreground lowercase">yes pool</p>
             <p className="font-bold text-[#BFFF00]">${totalYes.toFixed(2)}</p>
@@ -207,10 +208,6 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
           <div>
             <p className="text-muted-foreground lowercase">no pool</p>
             <p className="font-bold">${totalNo.toFixed(2)}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground lowercase">commits</p>
-            <p className="font-bold">{Number(market.commitCount)}</p>
           </div>
         </div>
 
@@ -231,16 +228,16 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
             error={resolveHook.error}
           />
         )}
-        {(settleHook.isPending ||
-          settleHook.isConfirming ||
-          settleHook.isSuccess ||
-          settleHook.error) && (
+        {(resolveOracleHook.isPending ||
+          resolveOracleHook.isConfirming ||
+          resolveOracleHook.isSuccess ||
+          resolveOracleHook.error) && (
           <TxStatus
-            hash={settleHook.hash}
-            isPending={settleHook.isPending}
-            isConfirming={settleHook.isConfirming}
-            isSuccess={settleHook.isSuccess}
-            error={settleHook.error}
+            hash={resolveOracleHook.hash}
+            isPending={resolveOracleHook.isPending}
+            isConfirming={resolveOracleHook.isConfirming}
+            isSuccess={resolveOracleHook.isSuccess}
+            error={resolveOracleHook.error}
           />
         )}
 
@@ -263,6 +260,14 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
                 disabled={isTxPending}
               >
                 resolve no
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1 bg-purple-600 hover:bg-purple-500 text-white font-black lowercase"
+                onClick={handleResolveFromOracle}
+                disabled={isTxPending}
+              >
+                resolve from oracle
               </Button>
             </>
           )}
@@ -288,15 +293,6 @@ function MarketAdminCard({ market }: { market: OnChainMarket }) {
                   settle via channel
                 </Button>
               )}
-              <Button
-                size="sm"
-                variant={(teeConnected || stateChannelReady) ? "outline" : "default"}
-                className={(teeConnected || stateChannelReady) ? "flex-1 font-black lowercase" : "flex-1 bg-[#BFFF00] hover:bg-white text-black font-black lowercase"}
-                onClick={handleSettle}
-                disabled={isTxPending}
-              >
-                settle (manual)
-              </Button>
             </>
           )}
         </div>

@@ -91,7 +91,7 @@ export function toFrontendMarket(onChain: OnChainMarket): Market {
     resolutionType: "admin",
     status,
     outcome: onChain.resolved ? onChain.outcome : undefined,
-    participantCount: Number(onChain.commitCount),
+    participantCount: 0, // Participant count tracked off-chain via state channels
     createdAt: new Date(onChain.createdAtTimestamp),
     creatorAddress: CONTRACTS.hellyHook, // markets are created via the contract
   };

@@ -232,7 +232,7 @@ export default function ProfilePage() {
               <CardContent className="p-12">
                 <EmptyState
                   title="no active bets"
-                  description="your on-chain commitments will appear here after you place bets"
+                  description="your bets will appear here after you place them via state channels"
                 />
               </CardContent>
             </Card>

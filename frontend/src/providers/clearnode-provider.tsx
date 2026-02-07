@@ -23,7 +23,7 @@ import {
 import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { useWalletClient } from "@/hooks/use-wallet-client";
 import { ClearnodeClient } from "@/lib/clearnode-client";
-import { CLEARNODE_WS_URL } from "@/config/constants";
+import { CLEARNODE_WS_URL, CLEARNODE_CONTRACTS } from "@/config/constants";
 
 interface ClearnodeState {
   client: ClearnodeClient | null;
@@ -32,6 +32,8 @@ interface ClearnodeState {
   isConnecting: boolean;
   sessionSigner: MessageSigner | null;
   error: string | null;
+  hasChannel: boolean;
+  channelBalance: string;
   connect: () => Promise<void>;
   disconnect: () => void;
 }
@@ -43,6 +45,8 @@ const ClearnodeContext = createContext<ClearnodeState>({
   isConnecting: false,
   sessionSigner: null,
   error: null,
+  hasChannel: false,
+  channelBalance: "0",
   connect: async () => {},
   disconnect: () => {},
 });
@@ -56,6 +60,8 @@ export function ClearnodeProvider({ children }: { children: ReactNode }) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [sessionSigner, setSessionSigner] = useState<MessageSigner | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasChannel, setHasChannel] = useState(false);
+  const [channelBalance, setChannelBalance] = useState("0");
 
   // Auto-disconnect when wallet disconnects
   useEffect(() => {
@@ -108,6 +114,24 @@ export function ClearnodeProvider({ children }: { children: ReactNode }) {
         const signer = createECDSAMessageSigner(sessionKey);
         setSessionSigner(() => signer);
         console.log("[Clearnode] Fully authenticated with session key");
+
+        // Auto-detect existing channels
+        try {
+          const channels = await newClient.getChannels(signer, address);
+          if (channels.length > 0) {
+            setHasChannel(true);
+            // Get balance from first channel
+            const balances = await newClient.getLedgerBalances(signer);
+            const usdcBal = balances.find(
+              (b: any) =>
+                b.asset?.toLowerCase() ===
+                CLEARNODE_CONTRACTS.usdc.toLowerCase()
+            );
+            setChannelBalance(usdcBal?.amount || "0");
+          }
+        } catch (err) {
+          console.warn("[Clearnode] Failed to fetch channels:", err);
+        }
       } else {
         setError("Authentication failed");
       }
@@ -131,6 +155,8 @@ export function ClearnodeProvider({ children }: { children: ReactNode }) {
     setIsAuthenticated(false);
     setSessionSigner(null);
     setError(null);
+    setHasChannel(false);
+    setChannelBalance("0");
   }, [client]);
 
   return (
@@ -142,6 +168,8 @@ export function ClearnodeProvider({ children }: { children: ReactNode }) {
         isConnecting,
         sessionSigner,
         error,
+        hasChannel,
+        channelBalance,
         connect,
         disconnect,
       }}

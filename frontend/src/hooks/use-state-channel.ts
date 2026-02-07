@@ -52,7 +52,7 @@ export function useStateChannel() {
       setIsLoading(true);
       try {
         const result = await client!.createChannel(sessionSigner!, {
-          chainId: 31337,
+          chainId: 1301, // Unichain Sepolia
           participant: address,
           token: CLEARNODE_CONTRACTS.usdc,
           amount,
@@ -156,12 +156,68 @@ export function useStateChannel() {
     []
   );
 
+  const deposit = useCallback(
+    async (amount: string) => {
+      if (!isReady || !address) throw new Error("Clearnode not ready");
+      setIsLoading(true);
+      try {
+        const result = await client!.createChannel(sessionSigner!, {
+          chainId: 1301, // Unichain Sepolia
+          participant: address,
+          token: CLEARNODE_CONTRACTS.usdc,
+          amount,
+        });
+        setChannelId(result.channelId);
+        saveChannelId(result.channelId);
+        return result.channelId;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, sessionSigner, address, isReady]
+  );
+
+  const withdraw = useCallback(
+    async () => {
+      if (!isReady || !channelId) throw new Error("No channel to close");
+      setIsLoading(true);
+      try {
+        await client!.closeChannel(sessionSigner!, { channelId });
+        setChannelId(null);
+        localStorage.removeItem(CHANNEL_STORAGE_KEY);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, sessionSigner, channelId, isReady]
+  );
+
+  const getBalance = useCallback(
+    async () => {
+      if (!isReady) return "0";
+      try {
+        const balances = await client!.getLedgerBalances(sessionSigner!);
+        const usdcBalance = balances.find(
+          (b: any) =>
+            b.asset?.toLowerCase() === CLEARNODE_CONTRACTS.usdc.toLowerCase()
+        );
+        return usdcBalance?.amount || "0";
+      } catch {
+        return "0";
+      }
+    },
+    [client, sessionSigner, isReady]
+  );
+
   return {
     isReady,
     channelId,
     channels,
     isLoading,
     createChannel,
+    deposit,
+    withdraw,
+    getBalance,
     fetchChannels,
     createAppSession,
     submitBetState,

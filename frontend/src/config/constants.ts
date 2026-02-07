@@ -8,9 +8,6 @@ export const APP_DESCRIPTION = "Bet on anything. Hidden positions. No cap fr fr.
 // Platform fee (Fanum Tax)
 export const PLATFORM_FEE_PERCENT = 2;
 
-// Reveal window duration (1 hour in milliseconds)
-export const REVEAL_WINDOW_MS = 60 * 60 * 1000;
-
 // Minimum bet amount (USDC)
 export const MIN_BET_AMOUNT = 1;
 
@@ -96,10 +93,16 @@ export const CLEARNODE_CONTRACTS = {
 // Clearnode WebSocket URL
 export const CLEARNODE_WS_URL = process.env.NEXT_PUBLIC_CLEARNODE_WS_URL || "ws://localhost:8000/ws";
 
-// Contract addresses (Base Sepolia)
+// TEE public address (for app session participant)
+export const TEE_ADDRESS = (process.env.NEXT_PUBLIC_TEE_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`;
+
+// TEE public key (ECIES encryption target)
+export const TEE_PUBLIC_KEY = (process.env.NEXT_PUBLIC_TEE_PUBLIC_KEY || "") as string;
+
+// Contract addresses (Unichain Sepolia)
 export const CONTRACTS = {
-  hellyHook: "0x218dc19b1e7dab45149a564839fffd2d6ed9e1ce" as `0x${string}`,
-  usdc: "0xf678f6cca06fa7b94e59f84229c13942a90a03b8" as `0x${string}`,
+  hellyHook: (process.env.NEXT_PUBLIC_HELLY_HOOK_ADDRESS || "0x218dc19b1e7dab45149a564839fffd2d6ed9e1ce") as `0x${string}`,
+  usdc: (process.env.NEXT_PUBLIC_USDC_ADDRESS || "0xf678f6cca06fa7b94e59f84229c13942a90a03b8") as `0x${string}`,
 };
 
 // HellyHook deployment block on Base Sepolia (for efficient event scanning)

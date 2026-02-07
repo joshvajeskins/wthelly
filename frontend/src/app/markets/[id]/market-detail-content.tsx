@@ -6,7 +6,6 @@ import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { toast } from "sonner";
 import { CountdownTimer, MarketStats } from "@/components/markets";
 import { BetCard, QuickAmounts } from "@/components/betting";
-import { TxStatus } from "@/components/shared/tx-status";
 import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +32,7 @@ export function MarketDetailContent({
   );
   const [amount, setAmount] = useState<string>("");
   const { address, isConnected } = usePrivyAccount();
-  const { placeBet, isPlacing, isConfirming, isSuccess, hash, error } = usePlaceBet();
+  const { placeBet, isPlacing } = usePlaceBet();
   const { data: hellyBalanceRaw } = useHellyBalance(address);
 
   const hellyBalance = hellyBalanceRaw
@@ -56,7 +55,7 @@ export function MarketDetailContent({
         selectedOption === "yes",
         numericAmount
       );
-      toast.success("bet placed fr fr! commitment submitted on-chain.");
+      toast.success("bet placed fr fr! submitted via state channel.");
       setAmount("");
       setSelectedOption(null);
     } catch (err: any) {
@@ -177,7 +176,7 @@ export function MarketDetailContent({
                           : "border-2 border-border hover:border-[#BFFF00] hover:text-[#BFFF00]"
                       }`}
                       onClick={() => setSelectedOption("yes")}
-                      disabled={isPlacing || isConfirming}
+                      disabled={isPlacing}
                     >
                       yes
                     </Button>
@@ -190,7 +189,7 @@ export function MarketDetailContent({
                           : "border-2 border-border hover:border-[#BFFF00] hover:text-[#BFFF00]"
                       }`}
                       onClick={() => setSelectedOption("no")}
-                      disabled={isPlacing || isConfirming}
+                      disabled={isPlacing}
                     >
                       no
                     </Button>
@@ -211,7 +210,7 @@ export function MarketDetailContent({
                           min="0"
                           step="0.01"
                           className="text-lg border-2 border-border focus:border-[#BFFF00]"
-                          disabled={isPlacing || isConfirming}
+                          disabled={isPlacing}
                         />
                       </div>
 
@@ -223,23 +222,12 @@ export function MarketDetailContent({
                         <div className="border-2 border-border p-4 space-y-1">
                           <p className="text-xs font-bold text-muted-foreground lowercase flex items-center gap-1">
                             <Lock className="size-3" />
-                            commit-reveal: bet direction hidden on-chain
+                            state channel: bet encrypted end-to-end
                           </p>
                           <p className="text-xs text-muted-foreground lowercase">
-                            secret stored in browser. reveal after market resolves.
+                            bet is submitted via clearnode state channel and encrypted with TEE.
                           </p>
                         </div>
-                      )}
-
-                      {/* Tx Status */}
-                      {(isPlacing || isConfirming || isSuccess || error) && (
-                        <TxStatus
-                          hash={hash}
-                          isPending={isPlacing}
-                          isConfirming={isConfirming}
-                          isSuccess={isSuccess}
-                          error={error}
-                        />
                       )}
 
                       {/* Place Bet Button */}
@@ -250,11 +238,10 @@ export function MarketDetailContent({
                         disabled={
                           !selectedOption ||
                           numericAmount <= 0 ||
-                          isPlacing ||
-                          isConfirming
+                          isPlacing
                         }
                       >
-                        {isPlacing || isConfirming
+                        {isPlacing
                           ? "cooking..."
                           : `place ${selectedOption} bet`}
                       </Button>
