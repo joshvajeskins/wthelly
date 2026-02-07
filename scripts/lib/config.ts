@@ -55,10 +55,10 @@ export function getRpcUrl(): string {
 }
 
 export function getChainId(): number {
-  return isTestnet() ? 84532 : 31337;
+  return isTestnet() ? 1301 : 31337;
 }
 
-export const EXPLORER_BASE_URL = "https://sepolia.basescan.org";
+export const EXPLORER_BASE_URL = "https://sepolia.uniscan.xyz";
 
 // --- Chain Config (backward compatible defaults) ---
 export const ANVIL_RPC_URL = "http://localhost:8545";
@@ -125,7 +125,9 @@ export const HELLY_HOOK_ABI = [
       { name: "marketId", type: "bytes32" },
       { name: "question", type: "string" },
       { name: "deadline", type: "uint256" },
-      { name: "revealWindow", type: "uint256" },
+      { name: "poolId", type: "bytes32" },
+      { name: "priceTarget", type: "uint160" },
+      { name: "priceAbove", type: "bool" },
     ],
     outputs: [],
     stateMutability: "nonpayable",
@@ -156,45 +158,26 @@ export const HELLY_HOOK_ABI = [
   },
   {
     type: "function",
-    name: "submitCommitment",
-    inputs: [
-      { name: "marketId", type: "bytes32" },
-      { name: "commitHash", type: "bytes32" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "revealBet",
-    inputs: [
-      { name: "marketId", type: "bytes32" },
-      { name: "isYes", type: "bool" },
-      { name: "secret", type: "bytes32" },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "settleMarket",
+    name: "resolveMarketFromOracle",
     inputs: [{ name: "marketId", type: "bytes32" }],
     outputs: [],
     stateMutability: "nonpayable",
   },
   {
     type: "function",
-    name: "getCommitmentHash",
+    name: "settleMarketWithProof",
     inputs: [
       { name: "marketId", type: "bytes32" },
-      { name: "isYes", type: "bool" },
-      { name: "amount", type: "uint256" },
-      { name: "secret", type: "bytes32" },
-      { name: "user", type: "address" },
+      { name: "payoutRecipients", type: "address[]" },
+      { name: "payoutAmounts", type: "uint256[]" },
+      { name: "totalPool", type: "uint256" },
+      { name: "platformFeeAmount", type: "uint256" },
+      { name: "_pA", type: "uint256[2]" },
+      { name: "_pB", type: "uint256[2][2]" },
+      { name: "_pC", type: "uint256[2]" },
     ],
-    outputs: [{ type: "bytes32" }],
-    stateMutability: "pure",
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
     type: "function",
@@ -203,39 +186,46 @@ export const HELLY_HOOK_ABI = [
     outputs: [
       { name: "question", type: "string" },
       { name: "deadline", type: "uint256" },
-      { name: "revealDeadline", type: "uint256" },
       { name: "resolved", type: "bool" },
       { name: "outcome", type: "bool" },
       { name: "totalYes", type: "uint256" },
       { name: "totalNo", type: "uint256" },
       { name: "settled", type: "bool" },
-      { name: "commitCount", type: "uint256" },
     ],
     stateMutability: "view",
   },
   {
     type: "function",
-    name: "getCommitment",
-    inputs: [
-      { name: "marketId", type: "bytes32" },
-      { name: "index", type: "uint256" },
-    ],
-    outputs: [
-      { name: "commitHash", type: "bytes32" },
-      { name: "amount", type: "uint256" },
-      { name: "bettor", type: "address" },
-      { name: "revealed", type: "bool" },
-      { name: "isYes", type: "bool" },
-    ],
+    name: "lastSqrtPriceX96",
+    inputs: [{ name: "", type: "bytes32" }],
+    outputs: [{ type: "uint160" }],
     stateMutability: "view",
   },
   {
     type: "function",
-    name: "getBettorCommitIndex",
-    inputs: [
-      { name: "marketId", type: "bytes32" },
-      { name: "bettor", type: "address" },
-    ],
+    name: "marketPoolId",
+    inputs: [{ name: "", type: "bytes32" }],
+    outputs: [{ type: "bytes32" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "marketPriceTarget",
+    inputs: [{ name: "", type: "bytes32" }],
+    outputs: [{ type: "uint160" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "marketPriceAbove",
+    inputs: [{ name: "", type: "bytes32" }],
+    outputs: [{ type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "lastPriceTimestamp",
+    inputs: [{ name: "", type: "bytes32" }],
     outputs: [{ type: "uint256" }],
     stateMutability: "view",
   },
@@ -247,7 +237,9 @@ export const HELLY_HOOK_ABI = [
       { name: "marketId", type: "bytes32", indexed: true },
       { name: "question", type: "string", indexed: false },
       { name: "deadline", type: "uint256", indexed: false },
-      { name: "revealDeadline", type: "uint256", indexed: false },
+      { name: "poolId", type: "bytes32", indexed: false },
+      { name: "priceTarget", type: "uint160", indexed: false },
+      { name: "priceAbove", type: "bool", indexed: false },
     ],
   },
   {
@@ -287,22 +279,20 @@ export const HELLY_HOOK_ABI = [
   },
   {
     type: "event",
-    name: "CommitmentSubmitted",
+    name: "PriceUpdated",
     inputs: [
-      { name: "marketId", type: "bytes32", indexed: true },
-      { name: "bettor", type: "address", indexed: true },
-      { name: "commitHash", type: "bytes32", indexed: false },
-      { name: "amount", type: "uint256", indexed: false },
+      { name: "poolId", type: "bytes32", indexed: true },
+      { name: "sqrtPriceX96", type: "uint160", indexed: false },
+      { name: "timestamp", type: "uint256", indexed: false },
     ],
   },
   {
     type: "event",
-    name: "BetRevealed",
+    name: "MarketSettledWithProof",
     inputs: [
       { name: "marketId", type: "bytes32", indexed: true },
-      { name: "bettor", type: "address", indexed: true },
-      { name: "isYes", type: "bool", indexed: false },
-      { name: "amount", type: "uint256", indexed: false },
+      { name: "totalPool", type: "uint256", indexed: false },
+      { name: "platformFee", type: "uint256", indexed: false },
     ],
   },
   {
