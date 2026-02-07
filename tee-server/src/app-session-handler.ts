@@ -1,6 +1,8 @@
 import type { ClearnodeBridge } from './clearnode-bridge.js';
 import type { BetStore, DecryptedBet } from './bet-store.js';
 import type { TeeAttestationService } from './tee-attestation.js';
+import type { BalanceTracker } from './balance-tracker.js';
+import type { ChainClient } from './chain-client.js';
 import { decryptBetData } from './ecies.js';
 import type { config as Config } from './config.js';
 
@@ -9,7 +11,9 @@ export class AppSessionHandler {
     private bridge: ClearnodeBridge,
     private betStore: BetStore,
     private teeService: TeeAttestationService,
-    private config: typeof Config
+    private config: typeof Config,
+    private balanceTracker?: BalanceTracker,
+    private chainClient?: ChainClient
   ) {}
 
   async handleNotification(notification: any): Promise<void> {
@@ -49,12 +53,43 @@ export class AppSessionHandler {
     // Decrypt ECIES-encrypted bet data if present
     if (sessionData.encryptedBet) {
       try {
+        this.teeService.incrementMetric('betsReceived');
         const betData = decryptBetData(this.teeService.getPrivateKey(), sessionData.encryptedBet);
+
+        const betAmount = BigInt(betData.amount);
+
+        // --- Validation: check market is open on-chain ---
+        if (this.chainClient) {
+          const open = await this.chainClient.isMarketOpen(betData.marketId);
+          if (!open) {
+            console.warn(
+              `[AppSession] Rejected bet: market ${betData.marketId.slice(0, 10)}... is closed/resolved`
+            );
+            return; // TEE doesn't co-sign → state doesn't advance
+          }
+        }
+
+        // --- Validation: check user has sufficient available balance ---
+        if (this.balanceTracker && allocations?.length) {
+          // Extract user's Clearnode balance from participant allocations
+          const userAlloc = allocations.find(
+            (a: any) => a.participant?.toLowerCase() === betData.address?.toLowerCase()
+          );
+          const clearnodeBalance = userAlloc ? BigInt(userAlloc.amount || '0') : 0n;
+
+          if (!this.balanceTracker.canPlaceBet(betData.address, clearnodeBalance, betAmount)) {
+            console.warn(
+              `[AppSession] Rejected bet: insufficient balance for ${betData.address.slice(0, 10)}... ` +
+              `(clearnode=${clearnodeBalance}, locked=${this.balanceTracker.getLockedAmount(betData.address)}, bet=${betAmount})`
+            );
+            return; // TEE doesn't co-sign
+          }
+        }
 
         const bet: DecryptedBet = {
           marketId: betData.marketId,
           isYes: betData.isYes,
-          amount: BigInt(betData.amount),
+          amount: betAmount,
           secret: betData.secret || '',
           address: betData.address,
           commitHash: '',
@@ -62,8 +97,12 @@ export class AppSessionHandler {
         };
 
         this.betStore.addBet(bet);
-        this.teeService.incrementMetric('betsReceived');
         this.teeService.incrementMetric('betsDecrypted');
+
+        // Lock funds in balance tracker
+        if (this.balanceTracker) {
+          this.balanceTracker.lockBet(betData.address, betData.marketId, betAmount);
+        }
 
         console.log(
           `[AppSession] Bet recorded: market=${betData.marketId.slice(0, 10)}... direction=${betData.isYes ? 'YES' : 'NO'}`
