@@ -1,6 +1,8 @@
 import { config } from './config.js';
 import { BetStore, DecryptedBet, SettlementResult } from './bet-store.js';
 import type { ClearnodeBridge } from './clearnode-bridge.js';
+import type { ChainClient } from './chain-client.js';
+import type { BalanceTracker } from './balance-tracker.js';
 
 // Dynamic import for snarkjs (ESM)
 let snarkjs: any;
@@ -192,4 +194,72 @@ export async function settleViaStateChannel(
   }
 
   return result;
+}
+
+// ============================================
+// Full On-Chain Settlement
+// ============================================
+
+export interface OnChainSettlementResult extends SettlementResult {
+  txHash: `0x${string}` | null;
+}
+
+export async function settleOnChain(
+  marketId: string,
+  outcome: boolean,
+  betStore: BetStore,
+  chainClient: ChainClient,
+  bridge: ClearnodeBridge | null,
+  balanceTracker: BalanceTracker | null
+): Promise<OnChainSettlementResult> {
+  // Step 1: Compute payouts + generate ZK proof
+  const result = await computeSettlement(marketId, outcome, betStore);
+
+  let txHash: `0x${string}` | null = null;
+
+  // Step 2: Submit proof on-chain (requires valid proof)
+  if (result.proof) {
+    try {
+      const recipients = result.payouts.map(p => p.address);
+      const amounts = result.payouts.map(p => p.amount);
+      txHash = await chainClient.submitSettlement(
+        marketId,
+        recipients,
+        amounts,
+        result.totalPool,
+        result.platformFee,
+        result.proof
+      );
+      console.log(`[Settlement] On-chain settlement tx: ${txHash}`);
+    } catch (error) {
+      console.error(`[Settlement] On-chain settlement failed:`, error);
+    }
+  } else {
+    console.warn(`[Settlement] No proof available — skipping on-chain submission for ${marketId}`);
+  }
+
+  // Step 3: Close Clearnode app sessions with final allocations
+  if (bridge?.isAuthenticated) {
+    try {
+      await bridge.closeAppSession([{
+        app_session_id: `0x${marketId}` as `0x${string}`,
+        allocations: result.payouts.map(p => ({
+          participant: p.address as `0x${string}`,
+          asset: 'USDC',
+          amount: p.amount.toString(),
+        })),
+      }]);
+      console.log(`[Settlement] App sessions closed for market ${marketId}`);
+    } catch (error) {
+      console.error(`[Settlement] Failed to close app sessions:`, error);
+    }
+  }
+
+  // Step 4: Release locked funds
+  if (balanceTracker) {
+    balanceTracker.unlockMarket(marketId);
+    console.log(`[Settlement] Balance locks released for market ${marketId}`);
+  }
+
+  return { ...result, txHash };
 }

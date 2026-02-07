@@ -10,7 +10,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config();
 
 export const config = {
-  port: parseInt(process.env.PORT || '3001', 10),
+  port: parseInt(process.env.PORT || '3007', 10),
   teeMode: (process.env.TEE_MODE || 'local-dev') as 'local-dev' | 'enclave',
   enclaveKeyPath: process.env.ENCLAVE_KEY_PATH || '/app/ecdsa.sec',
 
@@ -34,4 +34,8 @@ export const config = {
 
   // Max bets per market (must match circuit)
   maxBets: 32,
+
+  // Auto-settlement
+  autoSettle: process.env.AUTO_SETTLE === 'true',
+  marketWatcherIntervalMs: parseInt(process.env.MARKET_WATCHER_INTERVAL_MS || '15000', 10),
 };

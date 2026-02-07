@@ -3,9 +3,12 @@ import cors from 'cors';
 import { config } from './config.js';
 import { TeeAttestationService } from './tee-attestation.js';
 import { BetStore } from './bet-store.js';
-import { computeSettlement } from './settlement.js';
+import { computeSettlement, settleOnChain } from './settlement.js';
 import { ClearnodeBridge } from './clearnode-bridge.js';
 import { AppSessionHandler } from './app-session-handler.js';
+import { BalanceTracker } from './balance-tracker.js';
+import { ChainClient } from './chain-client.js';
+import { MarketWatcher } from './market-watcher.js';
 
 const app = express();
 app.use(cors());
@@ -14,6 +17,8 @@ app.use(express.json({ limit: '1mb' }));
 // Initialize services
 const teeService = new TeeAttestationService();
 const betStore = new BetStore();
+const balanceTracker = new BalanceTracker();
+const chainClient = new ChainClient(teeService);
 
 // ============================================
 // Health & Status
@@ -77,11 +82,15 @@ app.post('/settle/:marketId', async (req, res) => {
 
     let result;
 
-    // Settle via state channel if requested and bridge is available
-    if (req.query.channel === 'true' && bridge?.isAuthenticated) {
+    if (req.query.onchain === 'true') {
+      // Full on-chain settlement: compute + ZK proof + submit tx + close channels
+      result = await settleOnChain(marketId, outcome, betStore, chainClient, bridge, balanceTracker);
+    } else if (req.query.channel === 'true' && bridge?.isAuthenticated) {
+      // State channel only settlement
       const { settleViaStateChannel } = await import('./settlement.js');
       result = await settleViaStateChannel(marketId, outcome, betStore, bridge);
     } else {
+      // HTTP-only computation (no on-chain tx or channel close)
       result = await computeSettlement(marketId, outcome, betStore);
     }
 
@@ -162,11 +171,12 @@ function serializeSettlement(s: any) {
 // Initialize Clearnode bridge
 let bridge: ClearnodeBridge | null = null;
 let sessionHandler: AppSessionHandler | null = null;
+let marketWatcher: MarketWatcher | null = null;
 
 async function initClearnodeBridge() {
   try {
     bridge = new ClearnodeBridge(config.clearnodeWsUrl, teeService);
-    sessionHandler = new AppSessionHandler(bridge, betStore, teeService, config);
+    sessionHandler = new AppSessionHandler(bridge, betStore, teeService, config, balanceTracker, chainClient);
     bridge.onNotification((notification) => {
       sessionHandler!.handleNotification(notification).catch(err => {
         console.error('[Bridge] Notification handler error:', err);
@@ -174,6 +184,13 @@ async function initClearnodeBridge() {
     });
     await bridge.connect();
     console.log('[Clearnode] Bridge connected and authenticated');
+
+    // Start MarketWatcher if auto-settle is enabled
+    if (config.autoSettle) {
+      marketWatcher = new MarketWatcher(chainClient, betStore, bridge, balanceTracker, config);
+      await marketWatcher.start();
+      console.log('[MarketWatcher] Auto-settlement enabled');
+    }
   } catch (error) {
     console.warn('[Clearnode] Bridge connection failed (will retry):', error);
     // Server continues without Clearnode — HTTP endpoints still work
@@ -182,11 +199,12 @@ async function initClearnodeBridge() {
 
 app.listen(config.port, async () => {
   console.log(`\n[wthelly TEE Server]`);
-  console.log(`  Mode:     ${config.teeMode}`);
-  console.log(`  Port:     ${config.port}`);
-  console.log(`  Chain:    ${config.chainId}`);
-  console.log(`  Contract: ${config.hellyHookAddress}`);
-  console.log(`  PubKey:   ${teeService.publicKeyHex.slice(0, 20)}...`);
+  console.log(`  Mode:       ${config.teeMode}`);
+  console.log(`  Port:       ${config.port}`);
+  console.log(`  Chain:      ${config.chainId}`);
+  console.log(`  Contract:   ${config.hellyHookAddress}`);
+  console.log(`  AutoSettle: ${config.autoSettle}`);
+  console.log(`  PubKey:     ${teeService.publicKeyHex.slice(0, 20)}...`);
 
   // Connect to Clearnode in background
   await initClearnodeBridge();
