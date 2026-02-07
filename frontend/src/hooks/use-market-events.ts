@@ -91,6 +91,13 @@ export function useOnChainMarkets() {
 
   useEffect(() => {
     fetchMarkets();
+
+    // Poll every 30s for market state updates (resolution, settlement)
+    const interval = setInterval(() => {
+      fetchMarkets();
+    }, 30_000);
+
+    return () => clearInterval(interval);
   }, [fetchMarkets]);
 
   return { markets, isLoading, error, refetch: fetchMarkets };
