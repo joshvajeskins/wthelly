@@ -1,62 +1,24 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-
-@custom-variant dark (&:is(.dark *));
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* ============================================
    WTHELLY - BRAINROT DESIGN SYSTEM
    no cap fr fr
    ============================================ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-
-  /* BRAINROT COLORS - solid, no gradients */
-  --color-lime: var(--lime);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-
-  /* Fonts */
-  --font-sans: var(--font-inter);
-  --font-mono: var(--font-jetbrains);
-  --font-display: var(--font-space-grotesk);
-
-  /* Radius - more angular for brainrot */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  --radius-2xl: 16px;
-}
-
 /* ============================================
    COLOR TOKENS - BRAINROT DARK THEME
+   HSL space-separated format for Tailwind v3 opacity support
    ============================================ */
 
 :root {
   --radius: 8px;
 
   /* THE COLOR - lime green, thats it */
-  --lime: #BFFF00;
-  --success: #22C55E;
-  --warning: #F59E0B;
+  --lime: 75 100% 50%;
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
 
   /* Font families */
   --font-inter: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -69,40 +31,41 @@
   color-scheme: dark;
 
   /* Base - pure black */
-  --background: #000000;
-  --foreground: #ffffff;
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
 
   /* Cards - slightly lighter */
-  --card: #0a0a0a;
-  --card-foreground: #ffffff;
+  --card: 0 0% 4%;
+  --card-foreground: 0 0% 100%;
 
   /* Popover */
-  --popover: #0a0a0a;
-  --popover-foreground: #ffffff;
+  --popover: 0 0% 4%;
+  --popover-foreground: 0 0% 100%;
 
   /* Primary - LIME */
-  --primary: #BFFF00;
-  --primary-foreground: #000000;
+  --primary: 75 100% 50%;
+  --primary-foreground: 0 0% 0%;
 
   /* Secondary */
-  --secondary: #111111;
-  --secondary-foreground: #ffffff;
+  --secondary: 0 0% 7%;
+  --secondary-foreground: 0 0% 100%;
 
   /* Muted */
-  --muted: #1a1a1a;
-  --muted-foreground: #888888;
+  --muted: 0 0% 10%;
+  --muted-foreground: 0 0% 53%;
 
   /* Accent - LIME */
-  --accent: #BFFF00;
-  --accent-foreground: #000000;
+  --accent: 75 100% 50%;
+  --accent-foreground: 0 0% 0%;
 
   /* Destructive */
-  --destructive: #ff0000;
+  --destructive: 0 100% 50%;
+  --destructive-foreground: 0 0% 100%;
 
   /* Borders - subtle */
-  --border: #222222;
-  --input: #222222;
-  --ring: #BFFF00;
+  --border: 0 0% 13%;
+  --input: 0 0% 13%;
+  --ring: 75 100% 50%;
 }
 
 /* ============================================
@@ -366,6 +329,3 @@
     @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
   }
 }
-
-
-
