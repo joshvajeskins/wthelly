@@ -3,15 +3,21 @@ pragma solidity ^0.8.26;
 
 /**
  * @title WthellyAdjudicator
- * @notice Custom adjudicator for wthelly prediction market state channels.
+ * @notice Custom Nitrolite adjudicator for wthelly prediction market state channels.
  *
  * For regular bet states (consensus-signed by user + TEE), unanimous
- * signatures are sufficient.
+ * cryptographic signature verification via Utils is required.
  *
- * For settlement states (State.data encodes a ZK proof), the adjudicator
- * additionally verifies the Groth16 proof on-chain via the Groth16Verifier
- * to guarantee payout correctness even in disputes.
+ * For settlement states (State.data encodes a ZK proof + marketId), the
+ * adjudicator additionally:
+ *   1. Verifies the Groth16 proof on-chain
+ *   2. Cross-checks the claimed outcome against HellyHook's recorded outcome
  */
+
+import {IAdjudicator} from "nitrolite/interfaces/IAdjudicator.sol";
+import {Channel, State, StateIntent} from "nitrolite/interfaces/Types.sol";
+import {EIP712AdjudicatorBase} from "nitrolite/adjudicators/EIP712AdjudicatorBase.sol";
+import {Utils} from "nitrolite/Utils.sol";
 
 interface IGroth16Verifier {
     function verifyProof(
@@ -22,73 +28,73 @@ interface IGroth16Verifier {
     ) external view returns (bool);
 }
 
-// Minimal Nitrolite types (mirrors nitrolite/contract/src/interfaces/Types.sol)
-struct Allocation {
-    address destination;
-    address token;
-    uint256 amount;
+interface IHellyHook {
+    function getMarket(bytes32 marketId)
+        external
+        view
+        returns (
+            string memory question,
+            uint256 deadline,
+            bool resolved,
+            bool outcome,
+            uint256 totalYes,
+            uint256 totalNo,
+            bool settled
+        );
 }
 
-enum StateIntent {
-    OPERATE,
-    INITIALIZE,
-    RESIZE,
-    FINALIZE
-}
+contract WthellyAdjudicator is IAdjudicator, EIP712AdjudicatorBase {
+    using Utils for State;
 
-struct State {
-    StateIntent intent;
-    uint256 version;
-    bytes data;
-    Allocation[] allocations;
-    bytes[] sigs;
-}
-
-struct Channel {
-    address[] participants;
-    address adjudicator;
-    uint64 challenge;
-    uint64 nonce;
-}
-
-contract WthellyAdjudicator {
     IGroth16Verifier public immutable verifier;
-    address public immutable teeAddress;
+    IHellyHook public immutable hellyHook;
 
-    // State.data type tags
-    bytes32 private constant BET_TAG = keccak256("bet");
+    /// @dev State.data type tag for settlement states
     bytes32 private constant SETTLEMENT_TAG = keccak256("settlement");
 
-    constructor(address _verifier, address _teeAddress) {
+    constructor(
+        address owner,
+        address channelImpl,
+        address _verifier,
+        address _hellyHook
+    ) EIP712AdjudicatorBase(owner, channelImpl) {
         verifier = IGroth16Verifier(_verifier);
-        teeAddress = _teeAddress;
+        hellyHook = IHellyHook(_hellyHook);
     }
 
     /**
      * @notice Validate a candidate state for the wthelly app channel.
-     * @param chan   Channel config (participants includes user + TEE)
+     * @param chan       Channel config (participants = [user, TEE])
      * @param candidate  The proposed state
-     * @param proofs Previous states (unused — we only validate latest)
-     * @return valid True if the state is valid
+     * @param proofs     Previous states (unused — we only validate latest)
+     * @return valid     True if the state is valid
      */
     function adjudicate(
         Channel calldata chan,
         State calldata candidate,
         State[] calldata proofs
-    ) external view returns (bool valid) {
-        // Must have at least 2 participants (user + TEE)
-        if (chan.participants.length < 2) return false;
+    ) external override returns (bool valid) {
+        // We don't use proofs in this adjudicator
+        if (proofs.length != 0) return false;
 
-        // Require signatures from all participants (unanimous consent)
-        if (candidate.sigs.length < chan.participants.length) return false;
+        bytes32 domainSeparator = getChannelImplDomainSeparator();
 
-        // If data is long enough to be a settlement state, verify the ZK proof
-        // Settlement encoding: abi.encode(bytes32 tag, bytes32 marketId, bool outcome,
-        //   uint256 totalPool, uint256 platformFee, uint256 feeBps,
-        //   uint[2] pA, uint[2][2] pB, uint[2] pC)
+        // Version 0 = initial funding state
+        if (candidate.version == 0) {
+            return candidate.validateInitialState(chan, domainSeparator);
+        }
+
+        // All post-init states must not be INITIALIZE intent
+        if (candidate.intent == StateIntent.INITIALIZE) return false;
+
+        // Verify unanimous cryptographic signatures (user + TEE)
+        if (!candidate.validateUnanimousStateSignatures(chan, domainSeparator)) {
+            return false;
+        }
+
+        // If data encodes a settlement state, additionally verify ZK proof + outcome
         if (candidate.data.length > 64) {
             bytes32 tag = abi.decode(candidate.data[:32], (bytes32));
-
             if (tag == SETTLEMENT_TAG) {
                 return _validateSettlement(candidate.data);
             }
@@ -99,12 +105,18 @@ contract WthellyAdjudicator {
     }
 
     /**
-     * @dev Decode settlement data and verify the Groth16 proof.
+     * @dev Decode settlement data, verify the Groth16 proof, and cross-check
+     *      the claimed outcome against HellyHook's on-chain resolution.
+     *
+     * Settlement encoding:
+     *   abi.encode(bytes32 tag, bytes32 marketId, bool outcome,
+     *     uint256 totalPool, uint256 platformFee, uint256 feeBps,
+     *     uint[2] pA, uint[2][2] pB, uint[2] pC)
      */
     function _validateSettlement(bytes calldata data) internal view returns (bool) {
         (
             , // tag (already checked)
-            , // marketId
+            bytes32 marketId,
             bool outcome,
             uint256 totalPool,
             uint256 platformFee,
@@ -117,6 +129,21 @@ contract WthellyAdjudicator {
             (bytes32, bytes32, bool, uint256, uint256, uint256, uint[2], uint[2][2], uint[2])
         );
 
+        // Cross-check: the claimed outcome must match HellyHook's recorded resolution
+        (
+            , // question
+            , // deadline
+            bool resolved,
+            bool hookOutcome,
+            , // totalYes
+            , // totalNo
+              // settled
+        ) = hellyHook.getMarket(marketId);
+
+        if (!resolved) return false; // Market not yet resolved on-chain
+        if (outcome != hookOutcome) return false; // Outcome mismatch
+
+        // Verify Groth16 proof — public signals encode the settlement parameters
         uint[4] memory pubSignals = [
             outcome ? uint(1) : uint(0),
             feeBps,
