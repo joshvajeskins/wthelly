@@ -1,34 +1,30 @@
 /**
- * Script 8: Unichain Sepolia Testnet E2E Flow
+ * Script 8: Unichain Sepolia Testnet E2E Flow — REAL ZK PROOFS
  *
  * Self-contained testnet deployment + full prediction market lifecycle
- * using the ERC-7824 Custody architecture.
+ * using the ERC-7824 Custody architecture with real Groth16 verification.
  *
  * Flow:
  *   1. Check admin ETH balance
  *   2. Generate ephemeral wallets (Alice, Bob, Charlie)
  *   3. Fund wallets with ETH
- *   4. Deploy contracts (MockUSDC, HellyHook, MockVerifier, Custody, Dummy)
+ *   4. Deploy contracts (MockUSDC, HellyHook, Groth16Verifier, Custody, Dummy)
  *   5. Configure (setVerifier, setTeeAddress)
  *   6. Create market with oracle price params
  *   7. Test Custody deposit & withdraw cycle
- *   8. Fund the settlement pool (mint USDC directly to HellyHook)
- *   9. Simulate off-chain bets (state channels)
- *  10. Resolve market (admin resolves with YES outcome)
- *  11. Settle with ZK proof (MockVerifier for E2E)
- *  12. Verify final state (market status, oracle params)
- *  13. Print summary
- *
- * Settlement model:
- *   In production, bets happen off-chain via Clearnode state channels.
- *   The TEE computes settlement and calls settleMarketWithProof which
- *   verifies the ZK proof and records the settlement. It does NOT credit
- *   balances — funds are managed by Custody.sol (ERC-7824).
+ *   8. Simulate off-chain bets (state channels)
+ *   9. Resolve market (admin resolves with YES outcome)
+ *  10. Generate REAL Groth16 ZK proof via snarkjs
+ *  11. Settle with real proof verification on-chain
+ *  12. Verify final state
+ *  13. Test invalid proof rejection
+ *  14. Print summary
  *
  * Run: npx tsx scripts/8-testnet-flow.ts
  * Prerequisites:
  *   - .env with EVM_PRIVATE_KEY and TESTNET_RPC_URL
  *   - Admin account has >= 0.05 Unichain Sepolia ETH
+ *   - circuits/build/ contains compiled circuit artifacts
  */
 
 import "dotenv/config";
@@ -45,7 +41,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { execSync } from "child_process";
-import { writeFileSync, readFileSync } from "fs";
+import { writeFileSync, readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -75,6 +71,13 @@ const __dirname = dirname(__filename);
 
 // PoolManager on Unichain Sepolia
 const POOL_MANAGER = "0x00b036b58a818b1bc34d502d3fe730db729e62ac" as Address;
+
+// Circuit artifacts paths
+const CIRCUITS_DIR = join(__dirname, "../circuits");
+const WASM_PATH = join(CIRCUITS_DIR, "build/settlement_verify_js/settlement_verify.wasm");
+const ZKEY_PATH = join(CIRCUITS_DIR, "build/settlement_verify.zkey");
+const VKEY_PATH = join(CIRCUITS_DIR, "build/settlement_verify_vkey.json");
+const MAX_BETS = 32;
 
 // Extended ABI for ZK settlement + oracle functions
 const EXTENDED_ABI = [
@@ -109,7 +112,7 @@ const EXTENDED_ABI = [
   },
 ] as const;
 
-// MockVerifier ABI (same interface as Groth16Verifier)
+// Groth16Verifier ABI
 const VERIFIER_ABI = [
   {
     type: "function",
@@ -152,10 +155,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const RPC_SETTLE_DELAY = 3000;
+const RPC_SETTLE_DELAY = 6000;
 
 async function waitForRpc(): Promise<void> {
   await sleep(RPC_SETTLE_DELAY);
+}
+
+async function readContractWithRetry(
+  address: Address,
+  abi: any,
+  functionName: string,
+  args: any[] = [],
+  retries: number = 3,
+  delayMs: number = 4000,
+): Promise<any> {
+  for (let i = 0; i < retries; i++) {
+    const result = await readContract(address, abi, functionName, args);
+    if (result !== undefined) return result;
+    if (i < retries - 1) await sleep(delayMs);
+  }
+  return readContract(address, abi, functionName, args);
 }
 
 const txLog: { step: string; hash: Hex }[] = [];
@@ -199,6 +218,133 @@ async function readContract(
   return publicClient.readContract({ address, abi, functionName, args });
 }
 
+// --- ZK Proof Generation ---
+
+interface BetData {
+  address: string;
+  isYes: boolean;
+  amount: bigint;
+}
+
+interface ZkProof {
+  pA: [bigint, bigint];
+  pB: [[bigint, bigint], [bigint, bigint]];
+  pC: [bigint, bigint];
+  publicSignals: [bigint, bigint, bigint, bigint];
+}
+
+async function generateSettlementProof(
+  outcome: boolean,
+  feeBps: number,
+  bets: BetData[],
+): Promise<{ proof: ZkProof; payouts: bigint[]; totalPool: bigint; platformFee: bigint }> {
+  // Dynamic import for snarkjs (ESM)
+  const snarkjs = await import("snarkjs");
+
+  const outcomeNum = outcome ? 1 : 0;
+
+  // Classify bets
+  let winnerPool = 0n;
+  let loserPool = 0n;
+  const payouts: bigint[] = [];
+
+  for (const bet of bets) {
+    const isWinner = bet.isYes === outcome;
+    if (isWinner) {
+      winnerPool += bet.amount;
+    } else {
+      loserPool += bet.amount;
+    }
+  }
+
+  const totalPool = winnerPool + loserPool;
+  const platformFee = (loserPool * BigInt(feeBps)) / 10000n;
+  const netDistributable = loserPool - platformFee;
+
+  // Compute payouts
+  for (const bet of bets) {
+    const isWinner = bet.isYes === outcome;
+    if (isWinner && winnerPool > 0n) {
+      const share = (bet.amount * netDistributable) / winnerPool;
+      payouts.push(bet.amount + share);
+    } else {
+      payouts.push(0n);
+    }
+  }
+
+  // Verify conservation before proving
+  const sumPayouts = payouts.reduce((a, b) => a + b, 0n);
+  if (sumPayouts + platformFee !== totalPool) {
+    throw new Error(
+      `Conservation check failed: ${sumPayouts} + ${platformFee} != ${totalPool}`
+    );
+  }
+
+  // Pad arrays to MAX_BETS
+  const directions = new Array(MAX_BETS).fill("0");
+  const amounts = new Array(MAX_BETS).fill("0");
+  const payoutsArr = new Array(MAX_BETS).fill("0");
+  const active = new Array(MAX_BETS).fill("0");
+
+  for (let i = 0; i < bets.length; i++) {
+    directions[i] = bets[i].isYes ? "1" : "0";
+    amounts[i] = bets[i].amount.toString();
+    payoutsArr[i] = payouts[i].toString();
+    active[i] = "1";
+  }
+
+  const circuitInput = {
+    outcome: outcomeNum.toString(),
+    feeBps: feeBps.toString(),
+    totalPool: totalPool.toString(),
+    platformFee: platformFee.toString(),
+    numBets: bets.length.toString(),
+    directions,
+    amounts,
+    payouts: payoutsArr,
+    active,
+  };
+
+  console.log("    Generating Groth16 proof via snarkjs...");
+  const startTime = Date.now();
+
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+    circuitInput,
+    WASM_PATH,
+    ZKEY_PATH,
+  );
+
+  const duration = Date.now() - startTime;
+  console.log(`    Proof generated in ${duration}ms`);
+  console.log(`    Public signals: [${publicSignals.join(", ")}]`);
+
+  // Verify locally before submitting on-chain
+  const vkey = JSON.parse(readFileSync(VKEY_PATH, "utf-8"));
+  const localValid = await snarkjs.groth16.verify(vkey, publicSignals, proof);
+  console.log(`    Local verification: ${localValid ? "PASS" : "FAIL"}`);
+  if (!localValid) {
+    throw new Error("ZK proof failed local verification!");
+  }
+
+  // Format for Solidity (NOTE: snarkjs pB coordinates are swapped for bn128 pairing)
+  const formattedProof: ZkProof = {
+    pA: [BigInt(proof.pi_a[0]), BigInt(proof.pi_a[1])],
+    pB: [
+      [BigInt(proof.pi_b[0][1]), BigInt(proof.pi_b[0][0])],
+      [BigInt(proof.pi_b[1][1]), BigInt(proof.pi_b[1][0])],
+    ],
+    pC: [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])],
+    publicSignals: [
+      BigInt(publicSignals[0]),
+      BigInt(publicSignals[1]),
+      BigInt(publicSignals[2]),
+      BigInt(publicSignals[3]),
+    ],
+  };
+
+  return { proof: formattedProof, payouts, totalPool, platformFee };
+}
+
 // --- Main ---
 
 async function main() {
@@ -210,7 +356,7 @@ async function main() {
   console.log("║                                                        ║");
   console.log("║  ERC-7824 Custody + Oracle-based architecture          ║");
   console.log("║  Off-chain bets via state channels                     ║");
-  console.log("║  ZK proof settlement (MockVerifier for E2E)            ║");
+  console.log("║  REAL Groth16 ZK proof settlement                      ║");
   console.log("║                                                        ║");
   console.log("║  Alice   → YES $100                                    ║");
   console.log("║  Bob     → NO  $200                                    ║");
@@ -222,6 +368,16 @@ async function main() {
   console.log(`Admin: ${ADMIN_ADDRESS}`);
   console.log(`Explorer: ${addrLink(ADMIN_ADDRESS)}`);
   console.log(`PoolManager: ${POOL_MANAGER}`);
+
+  // Verify circuit artifacts exist
+  if (!existsSync(WASM_PATH) || !existsSync(ZKEY_PATH) || !existsSync(VKEY_PATH)) {
+    console.error("\n  ERROR: Circuit build artifacts not found!");
+    console.error("  Run: cd circuits && npm run build");
+    process.exit(1);
+  }
+  console.log(`\nCircuit artifacts verified:`);
+  console.log(`  WASM: ${WASM_PATH}`);
+  console.log(`  zkey: ${ZKEY_PATH}`);
 
   // ============================================================
   // STEP 0: Check admin ETH balance
@@ -302,12 +458,12 @@ async function main() {
   logTx("Deploy HellyHook", hellyHook.hash);
   console.log(`  HellyHook: ${hellyHook.address}`);
 
-  // Deploy MockVerifier (always returns true — for E2E testing)
-  console.log("\n  Deploying MockVerifier (always-true for E2E)...");
-  const mockVerifierBytecode = getContractBytecode("MockVerifier");
-  const mockVerifier = await deployContract(ADMIN_KEY, VERIFIER_ABI, mockVerifierBytecode);
-  logTx("Deploy MockVerifier", mockVerifier.hash);
-  console.log(`  MockVerifier: ${mockVerifier.address}`);
+  // Deploy REAL Groth16Verifier (generated from settlement_verify circuit)
+  console.log("\n  Deploying Groth16Verifier (REAL ZK verifier)...");
+  const groth16VerifierBytecode = getContractBytecode("Groth16Verifier");
+  const groth16Verifier = await deployContract(ADMIN_KEY, VERIFIER_ABI, groth16VerifierBytecode);
+  logTx("Deploy Groth16Verifier", groth16Verifier.hash);
+  console.log(`  Groth16Verifier: ${groth16Verifier.address}`);
 
   // Deploy Custody (ERC-7824)
   console.log("\n  Deploying Custody (ERC-7824)...");
@@ -327,7 +483,7 @@ async function main() {
   const deployment = {
     hellyHook: hellyHook.address,
     mockUSDC: mockUSDC.address,
-    verifier: mockVerifier.address,
+    verifier: groth16Verifier.address,
     poolManager: POOL_MANAGER,
     deployer: ADMIN_ADDRESS,
     chainId: 1301,
@@ -360,10 +516,10 @@ async function main() {
   // ============================================================
   step("Step 4: Configure Verifier & TEE Address");
 
-  console.log("  Setting verifier...");
+  console.log("  Setting Groth16Verifier as the on-chain verifier...");
   const setVerifierHash = await writeAndWait(
     ADMIN_KEY, hellyHook.address, EXTENDED_ABI,
-    "setVerifier", [mockVerifier.address],
+    "setVerifier", [groth16Verifier.address],
   );
   logTx("Set Verifier", setVerifierHash);
 
@@ -381,7 +537,7 @@ async function main() {
   console.log(`  Verifier: ${configuredVerifier}`);
   console.log(`  TEE Address: ${configuredTee}`);
 
-  if (configuredVerifier.toLowerCase() !== mockVerifier.address.toLowerCase()) {
+  if (configuredVerifier.toLowerCase() !== groth16Verifier.address.toLowerCase()) {
     console.error("  ERROR: Verifier not set correctly!");
     process.exit(1);
   }
@@ -392,9 +548,57 @@ async function main() {
   console.log("  Configuration verified.");
 
   // ============================================================
-  // STEP 5: Create Market
+  // STEP 5: Verify Groth16Verifier on-chain (standalone test)
   // ============================================================
-  step("Step 5: Create Market with Oracle Price Params");
+  step("Step 5: Verify Groth16Verifier On-Chain (Standalone)");
+
+  console.log("  Testing verifier contract with pre-built test proof...");
+  const testProof = JSON.parse(readFileSync(join(CIRCUITS_DIR, "build/settlement_verify_proof.json"), "utf-8"));
+  const testPublic = JSON.parse(readFileSync(join(CIRCUITS_DIR, "build/settlement_verify_public.json"), "utf-8"));
+
+  const testPA: [bigint, bigint] = [BigInt(testProof.pi_a[0]), BigInt(testProof.pi_a[1])];
+  const testPB: [[bigint, bigint], [bigint, bigint]] = [
+    [BigInt(testProof.pi_b[0][1]), BigInt(testProof.pi_b[0][0])],
+    [BigInt(testProof.pi_b[1][1]), BigInt(testProof.pi_b[1][0])],
+  ];
+  const testPC: [bigint, bigint] = [BigInt(testProof.pi_c[0]), BigInt(testProof.pi_c[1])];
+  const testSignals: [bigint, bigint, bigint, bigint] = [
+    BigInt(testPublic[0]), BigInt(testPublic[1]), BigInt(testPublic[2]), BigInt(testPublic[3]),
+  ];
+
+  console.log(`  Public signals: [${testSignals.join(", ")}]`);
+
+  const onChainValid = await readContract(
+    groth16Verifier.address, VERIFIER_ABI, "verifyProof",
+    [testPA, testPB, testPC, testSignals],
+  );
+  console.log(`  On-chain verification: ${onChainValid ? "PASS" : "FAIL"}`);
+
+  if (!onChainValid) {
+    console.error("  ERROR: Groth16Verifier rejected a valid proof!");
+    process.exit(1);
+  }
+
+  // Test with tampered signals (flip outcome from 1 to 0)
+  console.log("\n  Testing verifier rejects tampered proof...");
+  const tamperedSignals: [bigint, bigint, bigint, bigint] = [0n, testSignals[1], testSignals[2], testSignals[3]];
+  const tamperedValid = await readContract(
+    groth16Verifier.address, VERIFIER_ABI, "verifyProof",
+    [testPA, testPB, testPC, tamperedSignals],
+  );
+  console.log(`  Tampered signal verification: ${tamperedValid ? "FAIL (accepted!)" : "PASS (rejected)"}`);
+
+  if (tamperedValid) {
+    console.error("  ERROR: Groth16Verifier accepted a tampered proof!");
+    process.exit(1);
+  }
+
+  console.log("  Groth16Verifier on-chain tests PASSED.");
+
+  // ============================================================
+  // STEP 6: Create Market
+  // ============================================================
+  step("Step 6: Create Market with Oracle Price Params");
 
   const question = "Will ETH hit $5k by end of 2026?";
   const marketId = keccak256(encodePacked(["string"], [question]));
@@ -425,11 +629,11 @@ async function main() {
   console.log(`  On-chain: question="${marketAfterCreate[0]}", deadline=${marketAfterCreate[1]}`);
 
   // ============================================================
-  // STEP 6: Test Custody Deposit & Withdraw Cycle
+  // STEP 7: Test Custody Deposit & Withdraw Cycle
   // ============================================================
-  step("Step 6: Test Custody Deposit & Withdraw Cycle");
+  step("Step 7: Test Custody Deposit & Withdraw Cycle");
 
-  console.log("  Testing with Alice: mint 100 USDC → approve Custody → deposit → verify → withdraw → verify\n");
+  console.log("  Testing with Alice: mint 100 USDC -> approve Custody -> deposit -> verify -> withdraw -> verify\n");
 
   const testAmount = 100n * ONE_USDC;
 
@@ -476,7 +680,9 @@ async function main() {
   );
   logTx("Alice withdraw from Custody", withdrawHash);
 
-  await waitForRpc();
+  // Wait longer for RPC state to catch up after withdraw
+  console.log("  Waiting for RPC state to sync...");
+  await sleep(8000);
 
   const aliceCustodyBal2 = await readContract(
     custody.address, CUSTODY_ABI, "getAccountsBalances",
@@ -485,8 +691,19 @@ async function main() {
   const aliceBalAfterWithdraw = aliceCustodyBal2[0]?.[0] ?? 0n;
   console.log(`  Alice Custody balance after withdraw: ${formatUSDC(aliceBalAfterWithdraw)} USDC`);
   if (aliceBalAfterWithdraw !== 0n) {
-    console.error(`  ERROR: Expected 0, got ${formatUSDC(aliceBalAfterWithdraw)}`);
-    process.exit(1);
+    // Double-check: the withdraw TX succeeded, this might be RPC lag
+    console.warn(`  WARNING: Balance shows ${formatUSDC(aliceBalAfterWithdraw)} (may be RPC lag). Withdraw TX confirmed.`);
+    await sleep(5000);
+    const recheck = await readContract(
+      custody.address, CUSTODY_ABI, "getAccountsBalances",
+      [[aliceAccount.address], [mockUSDC.address]],
+    ) as bigint[][];
+    const recheckBal = recheck[0]?.[0] ?? 0n;
+    console.log(`  Recheck balance: ${formatUSDC(recheckBal)} USDC`);
+    if (recheckBal !== 0n) {
+      console.error(`  ERROR: Expected 0 after recheck, got ${formatUSDC(recheckBal)}`);
+      process.exit(1);
+    }
   }
 
   const aliceUsdcAfterWithdraw = await readContract(
@@ -496,21 +713,23 @@ async function main() {
   console.log("  Custody Deposit & Withdraw cycle PASSED.");
 
   // ============================================================
-  // STEP 7: Simulate Off-chain Bets
+  // STEP 8: Simulate Off-chain Bets
   // ============================================================
-  step("Step 7: Simulate Off-chain Bets (State Channels)");
+  step("Step 8: Simulate Off-chain Bets (State Channels)");
 
-  const bets = [
-    { name: "Alice", address: aliceAccount.address, key: aliceKey, isYes: true, amount: 100n * ONE_USDC },
-    { name: "Bob", address: bobAccount.address, key: bobKey, isYes: false, amount: 200n * ONE_USDC },
-    { name: "Charlie", address: charlieAccount.address, key: charlieKey, isYes: true, amount: 150n * ONE_USDC },
+  const bets: BetData[] = [
+    { address: aliceAccount.address, isYes: true, amount: 100n * ONE_USDC },
+    { address: bobAccount.address, isYes: false, amount: 200n * ONE_USDC },
+    { address: charlieAccount.address, isYes: true, amount: 150n * ONE_USDC },
   ];
+
+  const betNames = ["Alice", "Bob", "Charlie"];
 
   console.log("  In production, bets go through Clearnode WebSocket state channels.");
   console.log("  Funds are custodied by Custody.sol (ERC-7824), not HellyHook.\n");
 
-  for (const bet of bets) {
-    console.log(`  ${bet.name}: ${bet.isYes ? "YES" : "NO"} $${formatUSDC(bet.amount)} (off-chain)`);
+  for (let i = 0; i < bets.length; i++) {
+    console.log(`  ${betNames[i]}: ${bets[i].isYes ? "YES" : "NO"} $${formatUSDC(bets[i].amount)} (off-chain)`);
   }
 
   const totalPool = bets.reduce((sum, b) => sum + b.amount, 0n);
@@ -521,9 +740,9 @@ async function main() {
   console.log(`  Total pool: $${formatUSDC(totalPool)} USDC`);
 
   // ============================================================
-  // STEP 8: Resolve Market
+  // STEP 9: Resolve Market
   // ============================================================
-  step("Step 8: Resolve Market → YES");
+  step("Step 9: Resolve Market -> YES");
 
   console.log("  Admin resolving market with outcome: YES...\n");
 
@@ -546,58 +765,62 @@ async function main() {
   }
 
   // ============================================================
-  // STEP 9: Settle with ZK Proof
+  // STEP 10: Generate REAL ZK Proof & Settle
   // ============================================================
-  step("Step 9: Settle Market with ZK Proof (Record-Only)");
+  step("Step 10: Generate Real ZK Proof & Settle Market");
 
-  const loserPool = totalNo;
-  const platformFee = (loserPool * BigInt(PLATFORM_FEE_BPS)) / 10000n;
-  const netDistributable = loserPool - platformFee;
-  const winnerPool = totalYes;
+  console.log("  Computing settlement with REAL Groth16 proof...\n");
 
-  const aliceBet = 100n * ONE_USDC;
-  const charlieBet = 150n * ONE_USDC;
-  const alicePayout = aliceBet + (aliceBet * netDistributable) / winnerPool;
-  const charliePayout = charlieBet + (charlieBet * netDistributable) / winnerPool;
+  const settlement = await generateSettlementProof(true, PLATFORM_FEE_BPS, bets);
 
-  console.log(`  Settlement computation:`);
-  console.log(`    Total pool:       ${formatUSDC(totalPool)} USDC`);
-  console.log(`    Loser pool:       ${formatUSDC(loserPool)} USDC`);
-  console.log(`    Platform fee:     ${formatUSDC(platformFee)} USDC (${PLATFORM_FEE_BPS / 100}%)`);
-  console.log(`    Net distributable: ${formatUSDC(netDistributable)} USDC`);
-  console.log(`    Alice payout:     ${formatUSDC(alicePayout)} USDC`);
-  console.log(`    Charlie payout:   ${formatUSDC(charliePayout)} USDC`);
+  console.log(`\n  Settlement computation:`);
+  console.log(`    Total pool:       ${formatUSDC(settlement.totalPool)} USDC`);
+  console.log(`    Platform fee:     ${formatUSDC(settlement.platformFee)} USDC (${PLATFORM_FEE_BPS / 100}%)`);
 
-  const totalPayouts = alicePayout + charliePayout;
-  const conservationCheck = totalPayouts + platformFee === totalPool;
-  console.log(`    Conservation: ${formatUSDC(totalPayouts)} + ${formatUSDC(platformFee)} = ${formatUSDC(totalPayouts + platformFee)} ${conservationCheck ? "✓" : "FAIL"}`);
-  if (!conservationCheck) {
-    console.error("  ERROR: Payout conservation check failed!");
-    process.exit(1);
+  const winners = bets.filter(b => b.isYes);
+  const losers = bets.filter(b => !b.isYes);
+  for (let i = 0; i < bets.length; i++) {
+    const name = betNames[i];
+    const payout = settlement.payouts[i];
+    console.log(`    ${name} payout:    ${formatUSDC(payout)} USDC ${payout > 0n ? "(winner)" : "(loser)"}`);
   }
 
-  const recipients: Address[] = [aliceAccount.address, charlieAccount.address];
-  const amounts: bigint[] = [alicePayout, charliePayout];
+  const sumPayouts = settlement.payouts.reduce((a, b) => a + b, 0n);
+  const conservation = sumPayouts + settlement.platformFee === settlement.totalPool;
+  console.log(`    Conservation:     ${formatUSDC(sumPayouts)} + ${formatUSDC(settlement.platformFee)} = ${formatUSDC(sumPayouts + settlement.platformFee)} ${conservation ? "OK" : "FAIL"}`);
 
-  // Mock ZK proof (all zeros — MockVerifier accepts anything)
-  const pA: [bigint, bigint] = [0n, 0n];
-  const pB: [[bigint, bigint], [bigint, bigint]] = [[0n, 0n], [0n, 0n]];
-  const pC: [bigint, bigint] = [0n, 0n];
+  // Only include addresses with non-zero payouts for the on-chain call
+  const recipients: Address[] = [];
+  const amounts: bigint[] = [];
+  for (let i = 0; i < bets.length; i++) {
+    if (settlement.payouts[i] > 0n) {
+      recipients.push(bets[i].address as Address);
+      amounts.push(settlement.payouts[i]);
+    }
+  }
 
-  console.log("\n  Calling settleMarketWithProof (record-only — no balance credits)...");
+  console.log("\n  Calling settleMarketWithProof with REAL Groth16 proof...");
   const settleHash = await writeAndWait(
     ADMIN_KEY, hellyHook.address, EXTENDED_ABI,
     "settleMarketWithProof",
-    [marketId, recipients, amounts, totalPool, platformFee, pA, pB, pC],
+    [
+      marketId,
+      recipients,
+      amounts,
+      settlement.totalPool,
+      settlement.platformFee,
+      settlement.proof.pA,
+      settlement.proof.pB,
+      settlement.proof.pC,
+    ],
   );
-  logTx("Settle Market", settleHash);
-  console.log("  Market settled! Proof verified. Bet directions NEVER revealed on-chain.");
-  console.log("  NOTE: Payouts are handled off-chain via Custody.sol state channels.");
+  logTx("Settle Market (Real ZK Proof)", settleHash);
+  console.log("  Market settled with REAL Groth16 proof! Bet directions NEVER revealed on-chain.");
 
   // ============================================================
-  // STEP 10: Verify Final State
+  // STEP 11: Verify Final State
   // ============================================================
-  step("Step 10: Verify Final State");
+  step("Step 11: Verify Final State");
 
   await waitForRpc();
 
@@ -625,53 +848,148 @@ async function main() {
   console.log(`    priceAbove:  ${storedPriceAbove}`);
 
   // ============================================================
+  // STEP 12: Test Invalid Proof Rejection
+  // ============================================================
+  step("Step 12: Test Invalid Proof Rejection");
+
+  console.log("  Creating a second market to test invalid proof rejection...\n");
+
+  const question2 = "Will BTC hit $200k in 2026?";
+  const marketId2 = keccak256(encodePacked(["string"], [question2]));
+  const deadline2 = now + 600n;
+
+  const createHash2 = await writeAndWait(
+    ADMIN_KEY, hellyHook.address, EXTENDED_ABI,
+    "createMarket", [marketId2, question2, deadline2, poolId, priceTarget, priceAbove],
+  );
+  logTx("Create Market 2", createHash2);
+
+  const resolveHash2 = await writeAndWait(
+    ADMIN_KEY, hellyHook.address, EXTENDED_ABI,
+    "resolveMarket", [marketId2, false], // NO outcome
+  );
+  logTx("Resolve Market 2 (NO)", resolveHash2);
+
+  await waitForRpc();
+
+  // Try to settle with the proof from the first market (wrong outcome: proof says YES, market says NO)
+  console.log("  Attempting settlement with proof from wrong market (YES proof on NO market)...");
+  let invalidProofRejected = false;
+  try {
+    await writeAndWait(
+      ADMIN_KEY, hellyHook.address, EXTENDED_ABI,
+      "settleMarketWithProof",
+      [
+        marketId2,
+        recipients,
+        amounts,
+        settlement.totalPool,
+        settlement.platformFee,
+        settlement.proof.pA,
+        settlement.proof.pB,
+        settlement.proof.pC,
+      ],
+    );
+    console.log("  ERROR: Invalid proof was accepted! This should not happen.");
+  } catch (err: any) {
+    invalidProofRejected = true;
+    console.log("  Invalid proof correctly REJECTED.");
+    console.log(`  Revert reason: ${err.message?.slice(0, 100)}...`);
+  }
+
+  if (!invalidProofRejected) {
+    console.error("  CRITICAL: Groth16Verifier did not reject an invalid proof!");
+    process.exit(1);
+  }
+
+  // Also test with all-zero proof (should be rejected)
+  console.log("\n  Attempting settlement with all-zero proof...");
+  let zeroProofRejected = false;
+  try {
+    await writeAndWait(
+      ADMIN_KEY, hellyHook.address, EXTENDED_ABI,
+      "settleMarketWithProof",
+      [
+        marketId2,
+        [bobAccount.address],
+        [200n * ONE_USDC],
+        200n * ONE_USDC,
+        0n,
+        [0n, 0n],
+        [[0n, 0n], [0n, 0n]],
+        [0n, 0n],
+      ],
+    );
+    console.log("  ERROR: Zero proof was accepted! This should not happen.");
+  } catch (err: any) {
+    zeroProofRejected = true;
+    console.log("  All-zero proof correctly REJECTED.");
+    console.log(`  Revert reason: ${err.message?.slice(0, 100)}...`);
+  }
+
+  if (!zeroProofRejected) {
+    console.error("  CRITICAL: Groth16Verifier did not reject an all-zero proof!");
+    process.exit(1);
+  }
+
+  console.log("\n  Invalid proof rejection tests PASSED.");
+
+  // ============================================================
   // SUMMARY
   // ============================================================
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-  console.log(`\n${"═".repeat(60)}`);
+  console.log(`\n${"=".repeat(60)}`);
   console.log("  UNICHAIN SEPOLIA TESTNET E2E SUMMARY");
-  console.log(`${"═".repeat(60)}`);
+  console.log(`${"=".repeat(60)}`);
 
   console.log(`\n  Chain: Unichain Sepolia (1301)`);
   console.log(`  PoolManager: ${POOL_MANAGER}`);
   console.log(`  Time: ${elapsed}s`);
 
   console.log(`\n  Contracts:`);
-  console.log(`    MockUSDC:      ${mockUSDC.address}`);
-  console.log(`                   ${addrLink(mockUSDC.address)}`);
-  console.log(`    HellyHook:     ${hellyHook.address}`);
-  console.log(`                   ${addrLink(hellyHook.address)}`);
-  console.log(`    MockVerifier:  ${mockVerifier.address}`);
-  console.log(`                   ${addrLink(mockVerifier.address)}`);
-  console.log(`    Custody:       ${custody.address}`);
-  console.log(`                   ${addrLink(custody.address)}`);
-  console.log(`    Adjudicator:   ${dummy.address}`);
-  console.log(`                   ${addrLink(dummy.address)}`);
+  console.log(`    MockUSDC:         ${mockUSDC.address}`);
+  console.log(`                      ${addrLink(mockUSDC.address)}`);
+  console.log(`    HellyHook:        ${hellyHook.address}`);
+  console.log(`                      ${addrLink(hellyHook.address)}`);
+  console.log(`    Groth16Verifier:  ${groth16Verifier.address}`);
+  console.log(`                      ${addrLink(groth16Verifier.address)}`);
+  console.log(`    Custody:          ${custody.address}`);
+  console.log(`                      ${addrLink(custody.address)}`);
+  console.log(`    Adjudicator:      ${dummy.address}`);
+  console.log(`                      ${addrLink(dummy.address)}`);
 
   console.log(`\n  Settlement (record-only — payouts via Custody):`);
-  console.log(`    Alice  (YES $100): $${formatUSDC(alicePayout)} payout ✓`);
-  console.log(`    Charlie(YES $150): $${formatUSDC(charliePayout)} payout ✓`);
-  console.log(`    Bob    (NO  $200): $0 (lost) ✓`);
-  console.log(`    Platform fee:      $${formatUSDC(platformFee)} ✓`);
+  for (let i = 0; i < bets.length; i++) {
+    const name = betNames[i];
+    const dir = bets[i].isYes ? "YES" : "NO ";
+    const amt = formatUSDC(bets[i].amount);
+    const payout = formatUSDC(settlement.payouts[i]);
+    console.log(`    ${name.padEnd(8)}(${dir} $${amt}): $${payout} payout`);
+  }
+  console.log(`    Platform fee:       $${formatUSDC(settlement.platformFee)}`);
 
   console.log(`\n  Verifications:`);
-  console.log(`    Custody deposit/withdraw:  PASS`);
-  console.log(`    Market creation:           PASS`);
-  console.log(`    Market resolution:         PASS`);
-  console.log(`    ZK proof settlement:       PASS`);
-  console.log(`    Payout conservation:       PASS (${formatUSDC(totalPool)} total)`);
+  console.log(`    Groth16Verifier on-chain:   PASS (valid proof accepted)`);
+  console.log(`    Tampered proof rejection:    PASS (modified signal rejected)`);
+  console.log(`    Custody deposit/withdraw:    PASS`);
+  console.log(`    Market creation:             PASS`);
+  console.log(`    Market resolution:           PASS`);
+  console.log(`    Real ZK proof settlement:    PASS`);
+  console.log(`    Invalid proof rejection:     PASS`);
+  console.log(`    Zero proof rejection:        PASS`);
+  console.log(`    Payout conservation:         PASS (${formatUSDC(settlement.totalPool)} total)`);
 
   console.log(`\n  All Transactions (${txLog.length}):`);
   for (const { step: s, hash } of txLog) {
-    console.log(`    ${s.padEnd(30)} ${txLink(hash)}`);
+    console.log(`    ${s.padEnd(35)} ${txLink(hash)}`);
   }
 
-  console.log(`\n╔══════════════════════════════════════════════════════════╗`);
-  console.log(`║    UNICHAIN SEPOLIA TESTNET E2E: ALL PASS               ║`);
-  console.log(`║    ERC-7824 Custody Architecture                        ║`);
-  console.log(`║    Time: ${elapsed.padEnd(47)}║`);
-  console.log(`╚══════════════════════════════════════════════════════════╝`);
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`  UNICHAIN SEPOLIA TESTNET E2E: ALL PASS`);
+  console.log(`  REAL Groth16 ZK Proofs — No MockVerifier`);
+  console.log(`  Time: ${elapsed}s`);
+  console.log(`${"=".repeat(60)}`);
 }
 
 main().catch((err) => {
