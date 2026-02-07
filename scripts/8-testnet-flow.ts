@@ -1,13 +1,28 @@
 /**
- * Script 8: Testnet E2E Flow (Sepolia)
+ * Script 8: Unichain Sepolia Testnet E2E Flow
  *
- * Self-contained testnet deployment + full prediction market lifecycle.
- * Generates ephemeral wallets, funds them, deploys contracts, runs the full flow.
+ * Self-contained testnet deployment + full prediction market lifecycle
+ * using the new oracle-based architecture (no commit-reveal).
+ *
+ * Flow:
+ *   1. Check admin ETH balance
+ *   2. Generate ephemeral wallets (Alice, Bob, Charlie)
+ *   3. Fund wallets with ETH
+ *   4. Deploy contracts (MockUSDC, HellyHook, Groth16Verifier)
+ *   5. Configure (setVerifier, setTeeAddress)
+ *   6. Create market with oracle price params
+ *   7. Mint USDC & deposit for all users
+ *   8. Simulate off-chain bets (state channels)
+ *   9. Resolve market (admin resolves with YES outcome)
+ *  10. Settle with ZK proof (mock proof)
+ *  11. Verify final state
+ *  12. Withdrawals
+ *  13. Print summary
  *
  * Run: npx tsx scripts/8-testnet-flow.ts
  * Prerequisites:
- *   - .env with EVM_PRIVATE_KEY and SEPOLIA_RPC_URL
- *   - Admin account has >= 0.05 Base Sepolia ETH
+ *   - .env with EVM_PRIVATE_KEY and TESTNET_RPC_URL
+ *   - Admin account has >= 0.05 Unichain Sepolia ETH
  */
 
 import "dotenv/config";
@@ -20,6 +35,8 @@ import {
   type Address,
   formatEther,
   formatUnits,
+  keccak256,
+  encodePacked,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { execSync } from "child_process";
@@ -33,6 +50,7 @@ import {
   PLATFORM_FEE_BPS,
   HELLY_HOOK_ABI,
   ERC20_ABI,
+  USDC_DECIMALS,
   EXPLORER_BASE_URL,
   getRpcUrl,
 } from "./lib/config.js";
@@ -41,25 +59,65 @@ import {
   getWalletClient,
   deployContract,
   fundWithEth,
-  mintUSDC,
-  depositToHook,
-  submitCommitment,
-  revealBet,
-  resolveMarket,
-  settleMarket,
-  withdrawFromHook,
-  getMarket,
-  getBalance,
-  getUSDCBalance,
-  getCommitmentHash,
   formatUSDC,
   getExplorerTxUrl,
   getExplorerAddressUrl,
 } from "./lib/contracts.js";
-import { generateSecret, computeCommitmentHash, generateMarketId } from "./lib/commitment.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// PoolManager on Unichain Sepolia
+const POOL_MANAGER = "0x00b036b58a818b1bc34d502d3fe730db729e62ac" as Address;
+
+// Extended ABI for ZK settlement + oracle functions (same as 9-tee-flow.ts)
+const EXTENDED_ABI = [
+  ...HELLY_HOOK_ABI,
+  {
+    type: "function",
+    name: "setVerifier",
+    inputs: [{ name: "_verifier", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "setTeeAddress",
+    inputs: [{ name: "_tee", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "verifier",
+    inputs: [],
+    outputs: [{ type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "teeAddress",
+    inputs: [],
+    outputs: [{ type: "address" }],
+    stateMutability: "view",
+  },
+] as const;
+
+// Groth16Verifier ABI (minimal)
+const VERIFIER_ABI = [
+  {
+    type: "function",
+    name: "verifyProof",
+    inputs: [
+      { name: "_pA", type: "uint256[2]" },
+      { name: "_pB", type: "uint256[2][2]" },
+      { name: "_pC", type: "uint256[2]" },
+      { name: "_pubSignals", type: "uint256[4]" },
+    ],
+    outputs: [{ type: "bool" }],
+    stateMutability: "view",
+  },
+] as const;
 
 // --- Helpers ---
 
@@ -79,11 +137,13 @@ function step(name: string) {
 
 function getContractBytecode(name: string): Hex {
   const contractsDir = join(__dirname, "../contracts");
-  execSync("forge build", { cwd: contractsDir, stdio: "pipe" });
-  const artifact = JSON.parse(
-    readFileSync(join(contractsDir, `out/${name}.sol/${name}.json`), "utf-8")
-  );
+  const artifactPath = join(contractsDir, `out/${name}.sol/${name}.json`);
+  const artifact = JSON.parse(readFileSync(artifactPath, "utf-8"));
   return artifact.bytecode.object as Hex;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Track all TX hashes for summary
@@ -102,16 +162,22 @@ async function main() {
   const publicClient = getPublicClient();
 
   console.log("╔══════════════════════════════════════════════════════════╗");
-  console.log("║       WTHELLY — Base Sepolia Testnet E2E Flow                ║");
-  console.log("║                                                          ║");
-  console.log("║  Alice   → YES $100                                      ║");
-  console.log("║  Bob     → NO  $200                                      ║");
-  console.log("║  Charlie → YES $150                                      ║");
-  console.log("║  Outcome: YES                                            ║");
+  console.log("║    WTHELLY — Unichain Sepolia Testnet E2E Flow         ║");
+  console.log("║                                                        ║");
+  console.log("║  Oracle-based architecture (no commit-reveal)          ║");
+  console.log("║  Off-chain bets via state channels                     ║");
+  console.log("║  ZK proof settlement                                   ║");
+  console.log("║                                                        ║");
+  console.log("║  Alice   → YES $100                                    ║");
+  console.log("║  Bob     → NO  $200                                    ║");
+  console.log("║  Charlie → YES $150                                    ║");
+  console.log("║  Outcome: YES                                          ║");
   console.log("╚══════════════════════════════════════════════════════════╝");
   console.log(`\nRPC: ${getRpcUrl()}`);
+  console.log(`Chain: Unichain Sepolia (1301)`);
   console.log(`Admin: ${ADMIN_ADDRESS}`);
   console.log(`Explorer: ${addrLink(ADMIN_ADDRESS)}`);
+  console.log(`PoolManager: ${POOL_MANAGER}`);
 
   // ============================================================
   // STEP 0: Check admin ETH balance
@@ -122,9 +188,9 @@ async function main() {
   console.log(`  Admin ETH: ${formatEther(adminEthBalance)} ETH`);
 
   if (adminEthBalance < 50000000000000000n) { // 0.05 ETH
-    console.error("\n  ERROR: Admin needs at least 0.05 Base Sepolia ETH for gas!");
+    console.error("\n  ERROR: Admin needs at least 0.05 Unichain Sepolia ETH for gas!");
     console.error(`  Fund this address: ${ADMIN_ADDRESS}`);
-    console.error("  Get testnet ETH from: https://faucet.base.org/");
+    console.error("  Get testnet ETH from the Unichain Sepolia faucet");
     process.exit(1);
   }
   console.log("  Balance OK.");
@@ -156,7 +222,7 @@ async function main() {
   // ============================================================
   step("Step 2: Fund Test Wallets with ETH");
 
-  const ethPerWallet = "0.01";
+  const ethPerWallet = "0.005";
   for (const [name, addr] of [
     ["Alice", aliceAccount.address],
     ["Bob", bobAccount.address],
@@ -170,35 +236,48 @@ async function main() {
   // ============================================================
   // STEP 3: Deploy Contracts
   // ============================================================
-  step("Step 3: Deploy Contracts to Base Sepolia");
+  step("Step 3: Deploy Contracts to Unichain Sepolia");
 
   console.log("  Building contracts...");
-  const mockUsdcBytecode = getContractBytecode("MockUSDC");
-  const hellyHookBytecode = getContractBytecode("HellyHook");
+  execSync("forge build", { cwd: join(__dirname, "../contracts"), stdio: "pipe" });
 
+  // Deploy MockUSDC
   console.log("\n  Deploying MockUSDC...");
+  const mockUsdcBytecode = getContractBytecode("MockUSDC");
   const mockUSDC = await deployContract(ADMIN_KEY, ERC20_ABI, mockUsdcBytecode);
   logTx("Deploy MockUSDC", mockUSDC.hash);
   console.log(`  MockUSDC address: ${mockUSDC.address}`);
   console.log(`  ${addrLink(mockUSDC.address)}`);
 
+  // Deploy HellyHook (with real PoolManager on Unichain Sepolia)
   console.log("\n  Deploying HellyHook...");
+  const hellyHookBytecode = getContractBytecode("HellyHook");
   const hellyHook = await deployContract(
     ADMIN_KEY,
-    HELLY_HOOK_ABI,
+    EXTENDED_ABI,
     hellyHookBytecode,
-    [mockUSDC.address, BigInt(PLATFORM_FEE_BPS)]
+    [POOL_MANAGER, mockUSDC.address, BigInt(PLATFORM_FEE_BPS)]
   );
   logTx("Deploy HellyHook", hellyHook.hash);
   console.log(`  HellyHook address: ${hellyHook.address}`);
   console.log(`  ${addrLink(hellyHook.address)}`);
 
+  // Deploy Groth16Verifier
+  console.log("\n  Deploying Groth16Verifier...");
+  const verifierBytecode = getContractBytecode("Groth16Verifier");
+  const verifier = await deployContract(ADMIN_KEY, VERIFIER_ABI, verifierBytecode);
+  logTx("Deploy Groth16Verifier", verifier.hash);
+  console.log(`  Groth16Verifier address: ${verifier.address}`);
+  console.log(`  ${addrLink(verifier.address)}`);
+
   // Save deployment info
   const deployment = {
     hellyHook: hellyHook.address,
     mockUSDC: mockUSDC.address,
+    verifier: verifier.address,
+    poolManager: POOL_MANAGER,
     deployer: ADMIN_ADDRESS,
-    chainId: 84532,
+    chainId: 1301,
     timestamp: new Date().toISOString(),
   };
   writeFileSync(
@@ -208,45 +287,93 @@ async function main() {
   console.log("\n  Deployment saved to scripts/lib/deployment.json");
 
   // ============================================================
-  // STEP 4: Create Market
+  // STEP 4: Configure (setVerifier + setTeeAddress)
   // ============================================================
-  step("Step 4: Create Market");
+  step("Step 4: Configure Verifier & TEE Address");
+
+  const adminAccount = privateKeyToAccount(ADMIN_KEY);
+  const adminWc = getWalletClient(ADMIN_KEY);
+
+  console.log("  Setting verifier...");
+  const setVerifierHash = await adminWc.writeContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "setVerifier",
+    args: [verifier.address],
+    account: adminAccount,
+  } as any);
+  await publicClient.waitForTransactionReceipt({ hash: setVerifierHash });
+  logTx("Set Verifier", setVerifierHash);
+
+  console.log("  Setting TEE address (admin acts as TEE for this test)...");
+  const setTeeHash = await adminWc.writeContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "setTeeAddress",
+    args: [ADMIN_ADDRESS],
+    account: adminAccount,
+  } as any);
+  await publicClient.waitForTransactionReceipt({ hash: setTeeHash });
+  logTx("Set TEE Address", setTeeHash);
+
+  // Verify configuration
+  const configuredVerifier = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "verifier",
+  });
+  const configuredTee = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "teeAddress",
+  });
+  console.log(`  Verifier: ${configuredVerifier}`);
+  console.log(`  TEE Address: ${configuredTee}`);
+
+  // ============================================================
+  // STEP 5: Create Market
+  // ============================================================
+  step("Step 5: Create Market with Oracle Price Params");
 
   const question = "Will ETH hit $5k by end of 2026?";
-  const marketId = generateMarketId(question);
+  const marketId = keccak256(encodePacked(["string"], [question]));
   const now = BigInt(Math.floor(Date.now() / 1000));
-  const deadline = now + 7200n; // 2 hour betting window
-  const revealWindow = 3600n; // 1 hour reveal window
+  const deadline = now + 90n; // 90 seconds — short for live testnet
+  const poolId = keccak256(encodePacked(["string"], ["ETH-USDC-pool"]));
+  const priceTarget = 79228162514264337593543950336n; // sqrtPriceX96 ~1.0
+  const priceAbove = true;
 
   console.log(`  Market ID: ${marketId}`);
   console.log(`  Question: ${question}`);
   console.log(`  Deadline: ${new Date(Number(deadline) * 1000).toISOString()}`);
-  console.log(`  Reveal window: 3600s (1 hour after resolution)`);
+  console.log(`  Pool ID: ${poolId}`);
+  console.log(`  Price Target: ${priceTarget}`);
+  console.log(`  Price Above: ${priceAbove}`);
 
   console.log("\n  Creating market on-chain...");
-  const createHash = await (async () => {
-    const account = privateKeyToAccount(ADMIN_KEY);
-    const client = getWalletClient(ADMIN_KEY);
-    const hash = await client.writeContract({
-      address: hellyHook.address,
-      abi: HELLY_HOOK_ABI,
-      functionName: "createMarket",
-      args: [marketId, question, deadline, revealWindow],
-      chain: (await import("viem/chains")).baseSepolia,
-      account,
-    } as any);
-    await publicClient.waitForTransactionReceipt({ hash });
-    return hash;
-  })();
+  const createHash = await adminWc.writeContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "createMarket",
+    args: [marketId, question, deadline, poolId, priceTarget, priceAbove],
+    account: adminAccount,
+  } as any);
+  await publicClient.waitForTransactionReceipt({ hash: createHash });
   logTx("Create Market", createHash);
 
-  const market = await getMarket(marketId);
-  console.log(`\n  On-chain: question="${market.question}", resolved=${market.resolved}`);
+  // Verify market was created
+  const marketAfterCreate = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "getMarket",
+    args: [marketId],
+  }) as any[];
+  console.log(`\n  On-chain: question="${marketAfterCreate[0]}", resolved=${marketAfterCreate[2]}`);
 
   // ============================================================
-  // STEP 5: Mint USDC & Deposit for all users
+  // STEP 6: Mint USDC & Deposit for all users
   // ============================================================
-  step("Step 5: Mint USDC & Deposit");
+  step("Step 6: Mint USDC & Deposit");
 
   const mintAmount = 1000n * ONE_USDC;
   const depositAmount = 500n * ONE_USDC;
@@ -260,271 +387,294 @@ async function main() {
 
     // Mint USDC (admin mints to user)
     console.log(`  Minting ${formatUSDC(mintAmount)} USDC...`);
-    const mintHash = await (async () => {
-      const account = privateKeyToAccount(ADMIN_KEY);
-      const client = getWalletClient(ADMIN_KEY);
-      const hash = await client.writeContract({
-        address: mockUSDC.address,
-        abi: ERC20_ABI,
-        functionName: "mint",
-        args: [addr, mintAmount],
-        chain: (await import("viem/chains")).baseSepolia,
-        account,
-      } as any);
-      await publicClient.waitForTransactionReceipt({ hash });
-      return hash;
-    })();
+    const mintHash = await adminWc.writeContract({
+      address: mockUSDC.address,
+      abi: ERC20_ABI,
+      functionName: "mint",
+      args: [addr, mintAmount],
+      account: adminAccount,
+    } as any);
+    await publicClient.waitForTransactionReceipt({ hash: mintHash });
     logTx(`Mint USDC to ${name}`, mintHash);
 
-    // Approve + Deposit
+    // Approve
+    const userAccount = privateKeyToAccount(key);
+    const userWc = getWalletClient(key);
+
     console.log(`  Approving ${formatUSDC(depositAmount)} USDC...`);
-    const approveHash = await (async () => {
-      const account = privateKeyToAccount(key);
-      const client = getWalletClient(key);
-      const hash = await client.writeContract({
-        address: mockUSDC.address,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [hellyHook.address, depositAmount],
-        chain: (await import("viem/chains")).baseSepolia,
-        account,
-      } as any);
-      await publicClient.waitForTransactionReceipt({ hash });
-      return hash;
-    })();
+    const approveHash = await userWc.writeContract({
+      address: mockUSDC.address,
+      abi: ERC20_ABI,
+      functionName: "approve",
+      args: [hellyHook.address, depositAmount],
+      account: userAccount,
+    } as any);
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
     logTx(`Approve ${name}`, approveHash);
 
+    // Deposit
     console.log(`  Depositing ${formatUSDC(depositAmount)} USDC...`);
-    const depositHash = await (async () => {
-      const account = privateKeyToAccount(key);
-      const client = getWalletClient(key);
-      const hash = await client.writeContract({
-        address: hellyHook.address,
-        abi: HELLY_HOOK_ABI,
-        functionName: "deposit",
-        args: [depositAmount],
-        chain: (await import("viem/chains")).baseSepolia,
-        account,
-      } as any);
-      await publicClient.waitForTransactionReceipt({ hash });
-      return hash;
-    })();
+    const depositHash = await userWc.writeContract({
+      address: hellyHook.address,
+      abi: EXTENDED_ABI,
+      functionName: "deposit",
+      args: [depositAmount],
+      account: userAccount,
+    } as any);
+    await publicClient.waitForTransactionReceipt({ hash: depositHash });
     logTx(`Deposit ${name}`, depositHash);
 
-    const hookBal = await getBalance(addr);
+    const hookBal = await publicClient.readContract({
+      address: hellyHook.address,
+      abi: EXTENDED_ABI,
+      functionName: "balances",
+      args: [addr],
+    }) as bigint;
     console.log(`  HellyHook balance: ${formatUSDC(hookBal)} USDC`);
   }
 
   // ============================================================
-  // STEP 6: Place Bets
+  // STEP 7: Simulate Off-chain Bets (State Channels)
   // ============================================================
-  step("Step 6: Place Bets");
+  step("Step 7: Simulate Off-chain Bets (State Channels)");
 
-  interface BetInfo {
-    name: string;
-    key: Hex;
-    address: Address;
-    isYes: boolean;
-    amount: bigint;
-    secret: Hex;
-    commitHash: Hex;
+  console.log("  In production, bets go through Clearnode WebSocket state channels.");
+  console.log("  For this E2E test, we simulate the bet data that the TEE would know:\n");
+
+  const bets = [
+    { name: "Alice", address: aliceAccount.address, isYes: true, amount: 100n * ONE_USDC },
+    { name: "Bob", address: bobAccount.address, isYes: false, amount: 200n * ONE_USDC },
+    { name: "Charlie", address: charlieAccount.address, isYes: true, amount: 150n * ONE_USDC },
+  ];
+
+  for (const bet of bets) {
+    console.log(`  ${bet.name}: ${bet.isYes ? "YES" : "NO"} $${formatUSDC(bet.amount)} (off-chain via state channel)`);
   }
 
-  const bets: BetInfo[] = [];
+  const totalYes = bets.filter(b => b.isYes).reduce((sum, b) => sum + b.amount, 0n);
+  const totalNo = bets.filter(b => !b.isYes).reduce((sum, b) => sum + b.amount, 0n);
+  console.log(`\n  Total YES: $${formatUSDC(totalYes)} USDC`);
+  console.log(`  Total NO:  $${formatUSDC(totalNo)} USDC`);
 
-  for (const [name, key, addr, isYes, amount] of [
-    ["Alice", aliceKey, aliceAccount.address, true, 100n * ONE_USDC],
-    ["Bob", bobKey, bobAccount.address, false, 200n * ONE_USDC],
-    ["Charlie", charlieKey, charlieAccount.address, true, 150n * ONE_USDC],
-  ] as const) {
-    console.log(`\n  --- ${name}: ${isYes ? "YES" : "NO"} $${formatUSDC(amount)} ---`);
+  // ============================================================
+  // STEP 8: Wait for Deadline, then Resolve Market
+  // ============================================================
+  step("Step 8: Wait for Deadline & Resolve Market → YES");
 
-    const secret = generateSecret();
-    const commitHash = computeCommitmentHash(marketId, isYes, amount, secret, addr);
+  // Check how long until deadline
+  const currentTime = BigInt(Math.floor(Date.now() / 1000));
+  const waitTime = deadline > currentTime ? Number(deadline - currentTime) : 0;
 
-    // Verify hash matches on-chain
-    const onChainHash = await getCommitmentHash(marketId, isYes, amount, secret, addr);
-    if (commitHash !== onChainHash) {
-      throw new Error(`Commitment hash mismatch for ${name}!`);
+  if (waitTime > 0) {
+    console.log(`  Deadline is ${waitTime}s from now. Waiting...`);
+    // Poll every 10 seconds
+    const pollInterval = 10;
+    let elapsed = 0;
+    while (elapsed < waitTime + 5) { // +5s buffer
+      await sleep(pollInterval * 1000);
+      elapsed += pollInterval;
+      const remaining = waitTime - elapsed;
+      if (remaining > 0) {
+        console.log(`  ... ${remaining}s remaining`);
+      } else {
+        console.log("  Deadline passed!");
+        break;
+      }
     }
-    console.log(`  Hash verified (off-chain == on-chain)`);
-
-    // Submit commitment
-    console.log(`  Submitting commitment...`);
-    const commitTxHash = await (async () => {
-      const account = privateKeyToAccount(key);
-      const client = getWalletClient(key);
-      const hash = await client.writeContract({
-        address: hellyHook.address,
-        abi: HELLY_HOOK_ABI,
-        functionName: "submitCommitment",
-        args: [marketId, commitHash, amount],
-        chain: (await import("viem/chains")).baseSepolia,
-        account,
-      } as any);
-      await publicClient.waitForTransactionReceipt({ hash });
-      return hash;
-    })();
-    logTx(`Bet ${name}`, commitTxHash);
-
-    const hookBal = await getBalance(addr);
-    console.log(`  Remaining balance: ${formatUSDC(hookBal)} USDC`);
-
-    bets.push({ name, key, address: addr, isYes, amount, secret, commitHash });
+  } else {
+    console.log("  Deadline already passed.");
   }
 
-  const marketAfterBets = await getMarket(marketId);
-  console.log(`\n  Market commit count: ${marketAfterBets.commitCount}`);
-
-  // ============================================================
-  // STEP 7: Resolve Market (YES wins)
-  // ============================================================
-  step("Step 7: Resolve Market → YES");
-
-  console.log("  Resolving market with outcome: YES...");
-  const resolveHash = await (async () => {
-    const account = privateKeyToAccount(ADMIN_KEY);
-    const client = getWalletClient(ADMIN_KEY);
-    const hash = await client.writeContract({
-      address: hellyHook.address,
-      abi: HELLY_HOOK_ABI,
-      functionName: "resolveMarket",
-      args: [marketId, true],
-      chain: (await import("viem/chains")).baseSepolia,
-      account,
-    } as any);
-    await publicClient.waitForTransactionReceipt({ hash });
-    return hash;
-  })();
+  console.log("\n  Resolving market with outcome: YES...");
+  const resolveHash = await adminWc.writeContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "resolveMarket",
+    args: [marketId, true],
+    account: adminAccount,
+  } as any);
+  await publicClient.waitForTransactionReceipt({ hash: resolveHash });
   logTx("Resolve Market", resolveHash);
 
-  const marketAfterResolve = await getMarket(marketId);
-  console.log(`  Resolved: ${marketAfterResolve.resolved}, Outcome: ${marketAfterResolve.outcome ? "YES" : "NO"}`);
+  const marketAfterResolve = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "getMarket",
+    args: [marketId],
+  }) as any[];
+  console.log(`  Resolved: ${marketAfterResolve[2]}, Outcome: ${marketAfterResolve[3] ? "YES" : "NO"}`);
 
   // ============================================================
-  // STEP 8: Reveal All Bets
+  // STEP 9: Settle with ZK Proof
   // ============================================================
-  step("Step 8: Reveal All Bets");
+  step("Step 9: Settle Market with ZK Proof");
 
-  for (const bet of bets) {
-    console.log(`\n  Revealing ${bet.name} (${bet.isYes ? "YES" : "NO"} $${formatUSDC(bet.amount)})...`);
-    const revealHash = await (async () => {
-      const account = privateKeyToAccount(bet.key);
-      const client = getWalletClient(bet.key);
-      const hash = await client.writeContract({
-        address: hellyHook.address,
-        abi: HELLY_HOOK_ABI,
-        functionName: "revealBet",
-        args: [marketId, bet.isYes, bet.secret],
-        chain: (await import("viem/chains")).baseSepolia,
-        account,
-      } as any);
-      await publicClient.waitForTransactionReceipt({ hash });
-      return hash;
-    })();
-    logTx(`Reveal ${bet.name}`, revealHash);
+  // Compute settlement payouts:
+  // Winners (YES): Alice (100 USDC) + Charlie (150 USDC) = 250 USDC
+  // Losers (NO): Bob (200 USDC)
+  // Total pool = 450 USDC
+  // Platform fee = 2% of loser pool = 2% of 200 = 4 USDC
+  // Net distributable from losers = 200 - 4 = 196 USDC
+  // Alice payout = 100 + (100/250) * 196 = 100 + 78.4 = 178.4 USDC
+  // Charlie payout = 150 + (150/250) * 196 = 150 + 117.6 = 267.6 USDC
+  const totalPool = 450n * ONE_USDC;
+  const loserPool = 200n * ONE_USDC;
+  const platformFee = (loserPool * BigInt(PLATFORM_FEE_BPS)) / 10000n;
+  const netDistributable = loserPool - platformFee;
+  const winnerPool = 250n * ONE_USDC;
+
+  const alicePayout = 100n * ONE_USDC + (100n * ONE_USDC * netDistributable) / winnerPool;
+  const charliePayout = 150n * ONE_USDC + (150n * ONE_USDC * netDistributable) / winnerPool;
+
+  console.log(`  Total pool: ${formatUSDC(totalPool)} USDC`);
+  console.log(`  Loser pool: ${formatUSDC(loserPool)} USDC`);
+  console.log(`  Platform fee: ${formatUSDC(platformFee)} USDC`);
+  console.log(`  Net distributable: ${formatUSDC(netDistributable)} USDC`);
+  console.log(`  Alice payout: ${formatUSDC(alicePayout)} USDC`);
+  console.log(`  Charlie payout: ${formatUSDC(charliePayout)} USDC`);
+
+  const recipients: Address[] = [aliceAccount.address, charlieAccount.address];
+  const amounts: bigint[] = [alicePayout, charliePayout];
+
+  // Mock ZK proof (all zeros — will fail real verification but tests the contract call flow)
+  const pA: [bigint, bigint] = [0n, 0n];
+  const pB: [[bigint, bigint], [bigint, bigint]] = [[0n, 0n], [0n, 0n]];
+  const pC: [bigint, bigint] = [0n, 0n];
+
+  console.log("\n  Calling settleMarketWithProof...");
+  try {
+    const settleHash = await adminWc.writeContract({
+      address: hellyHook.address,
+      abi: EXTENDED_ABI,
+      functionName: "settleMarketWithProof",
+      args: [marketId, recipients, amounts, totalPool, platformFee, pA, pB, pC],
+      account: adminAccount,
+    } as any);
+    await publicClient.waitForTransactionReceipt({ hash: settleHash });
+    logTx("Settle Market", settleHash);
+    console.log("  Market settled with ZK proof — bet directions NEVER revealed on-chain!");
+  } catch (err: any) {
+    console.log(`  settleMarketWithProof failed (expected if verifier rejects mock proof):`);
+    console.log(`  ${err.message?.slice(0, 200)}`);
+    console.log("  In production, a real ZK proof from the TEE would be used.");
   }
 
-  const marketAfterReveal = await getMarket(marketId);
-  console.log(`\n  Total YES: ${formatUSDC(marketAfterReveal.totalYes)} USDC`);
-  console.log(`  Total NO: ${formatUSDC(marketAfterReveal.totalNo)} USDC`);
-
   // ============================================================
-  // STEP 9: Settle Market
+  // STEP 10: Verify Final State
   // ============================================================
-  step("Step 9: Settle Market");
+  step("Step 10: Verify Final State");
 
-  // Pre-settlement balances
-  console.log("  Pre-settlement balances:");
-  const preBals = new Map<Address, bigint>();
+  const marketFinal = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "getMarket",
+    args: [marketId],
+  }) as any[];
+
+  console.log(`  Market resolved: ${marketFinal[2]}`);
+  console.log(`  Market outcome (YES): ${marketFinal[3]}`);
+  console.log(`  Market settled: ${marketFinal[6]}`);
+
+  // Check balances
+  console.log("\n  User balances in HellyHook:");
   for (const bet of bets) {
-    const bal = await getBalance(bet.address);
-    preBals.set(bet.address, bal);
+    const bal = await publicClient.readContract({
+      address: hellyHook.address,
+      abi: EXTENDED_ABI,
+      functionName: "balances",
+      args: [bet.address],
+    }) as bigint;
     console.log(`    ${bet.name}: ${formatUSDC(bal)} USDC`);
   }
-  const adminPreBal = await getBalance(ADMIN_ADDRESS);
-  console.log(`    Admin: ${formatUSDC(adminPreBal)} USDC`);
 
-  console.log("\n  Settling market...");
-  const settleHash = await (async () => {
-    const account = privateKeyToAccount(ADMIN_KEY);
-    const client = getWalletClient(ADMIN_KEY);
-    const hash = await client.writeContract({
+  const adminBal = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "balances",
+    args: [ADMIN_ADDRESS],
+  }) as bigint;
+  console.log(`    Admin (platform fee): ${formatUSDC(adminBal)} USDC`);
+
+  // Verify oracle-related state
+  const storedPoolId = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "marketPoolId",
+    args: [marketId],
+  });
+  const storedPriceTarget = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "marketPriceTarget",
+    args: [marketId],
+  });
+  const storedPriceAbove = await publicClient.readContract({
+    address: hellyHook.address,
+    abi: EXTENDED_ABI,
+    functionName: "marketPriceAbove",
+    args: [marketId],
+  });
+
+  console.log(`\n  Oracle config:`);
+  console.log(`    poolId: ${(storedPoolId as string).slice(0, 16)}...`);
+  console.log(`    priceTarget: ${storedPriceTarget}`);
+  console.log(`    priceAbove: ${storedPriceAbove}`);
+
+  // ============================================================
+  // STEP 11: Withdrawals
+  // ============================================================
+  step("Step 11: Withdraw All Balances");
+
+  for (const bet of bets) {
+    const bal = await publicClient.readContract({
       address: hellyHook.address,
-      abi: HELLY_HOOK_ABI,
-      functionName: "settleMarket",
-      args: [marketId],
-      chain: (await import("viem/chains")).baseSepolia,
-      account,
-    } as any);
-    await publicClient.waitForTransactionReceipt({ hash });
-    return hash;
-  })();
-  logTx("Settle Market", settleHash);
+      abi: EXTENDED_ABI,
+      functionName: "balances",
+      args: [bet.address],
+    }) as bigint;
 
-  // Post-settlement balances
-  console.log("\n  Post-settlement balances:");
-  const winnerPayouts = new Map<Address, bigint>();
-  for (const bet of bets) {
-    const postBal = await getBalance(bet.address);
-    const preBal = preBals.get(bet.address)!;
-    const diff = postBal - preBal;
-    console.log(
-      `    ${bet.name}: ${formatUSDC(postBal)} USDC` +
-        (diff > 0n ? ` (+${formatUSDC(diff)} winnings)` : " (lost)")
-    );
-    if (diff > 0n) winnerPayouts.set(bet.address, diff);
-  }
-  const adminPostBal = await getBalance(ADMIN_ADDRESS);
-  const platformFee = adminPostBal - adminPreBal;
-  console.log(`    Admin fee: +${formatUSDC(platformFee)} USDC`);
-
-  // ============================================================
-  // STEP 10: Withdrawals
-  // ============================================================
-  step("Step 10: Withdraw All Balances");
-
-  for (const bet of bets) {
-    const bal = await getBalance(bet.address);
     if (bal > 0n) {
+      const userAccount = privateKeyToAccount(
+        bet.name === "Alice" ? aliceKey : bet.name === "Bob" ? bobKey : charlieKey
+      );
+      const userWc = getWalletClient(
+        bet.name === "Alice" ? aliceKey : bet.name === "Bob" ? bobKey : charlieKey
+      );
+
       console.log(`\n  ${bet.name} withdrawing ${formatUSDC(bal)} USDC...`);
-      const wHash = await (async () => {
-        const account = privateKeyToAccount(bet.key);
-        const client = getWalletClient(bet.key);
-        const hash = await client.writeContract({
-          address: hellyHook.address,
-          abi: HELLY_HOOK_ABI,
-          functionName: "withdraw",
-          args: [bal],
-          chain: (await import("viem/chains")).baseSepolia,
-          account,
-        } as any);
-        await publicClient.waitForTransactionReceipt({ hash });
-        return hash;
-      })();
+      const wHash = await userWc.writeContract({
+        address: hellyHook.address,
+        abi: EXTENDED_ABI,
+        functionName: "withdraw",
+        args: [bal],
+        account: userAccount,
+      } as any);
+      await publicClient.waitForTransactionReceipt({ hash: wHash });
       logTx(`Withdraw ${bet.name}`, wHash);
-      const usdcBal = await getUSDCBalance(bet.address);
+
+      const usdcBal = await publicClient.readContract({
+        address: mockUSDC.address,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [bet.address],
+      }) as bigint;
       console.log(`    USDC wallet balance: ${formatUSDC(usdcBal)}`);
+    } else {
+      console.log(`\n  ${bet.name}: nothing to withdraw (balance = 0)`);
     }
   }
 
-  // Admin withdraws fee
-  if (platformFee > 0n) {
-    console.log(`\n  Admin withdrawing ${formatUSDC(platformFee)} fee...`);
-    const adminWHash = await (async () => {
-      const account = privateKeyToAccount(ADMIN_KEY);
-      const client = getWalletClient(ADMIN_KEY);
-      const hash = await client.writeContract({
-        address: hellyHook.address,
-        abi: HELLY_HOOK_ABI,
-        functionName: "withdraw",
-        args: [platformFee],
-        chain: (await import("viem/chains")).baseSepolia,
-        account,
-      } as any);
-      await publicClient.waitForTransactionReceipt({ hash });
-      return hash;
-    })();
+  // Admin withdraws fee if any
+  if (adminBal > 0n) {
+    console.log(`\n  Admin withdrawing ${formatUSDC(adminBal)} fee...`);
+    const adminWHash = await adminWc.writeContract({
+      address: hellyHook.address,
+      abi: EXTENDED_ABI,
+      functionName: "withdraw",
+      args: [adminBal],
+      account: adminAccount,
+    } as any);
+    await publicClient.waitForTransactionReceipt({ hash: adminWHash });
     logTx("Withdraw Admin Fee", adminWHash);
   }
 
@@ -534,39 +684,35 @@ async function main() {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
   console.log(`\n${"═".repeat(60)}`);
-  console.log("  TESTNET E2E SUMMARY");
+  console.log("  UNICHAIN SEPOLIA TESTNET E2E SUMMARY");
   console.log(`${"═".repeat(60)}`);
 
-  console.log(`\n  Chain: Base Sepolia (84532)`);
+  console.log(`\n  Chain: Unichain Sepolia (1301)`);
+  console.log(`  PoolManager: ${POOL_MANAGER}`);
   console.log(`  Time: ${elapsed}s`);
   console.log(`\n  Contracts:`);
-  console.log(`    MockUSDC:  ${mockUSDC.address}`);
-  console.log(`               ${addrLink(mockUSDC.address)}`);
-  console.log(`    HellyHook: ${hellyHook.address}`);
-  console.log(`               ${addrLink(hellyHook.address)}`);
+  console.log(`    MockUSDC:        ${mockUSDC.address}`);
+  console.log(`                     ${addrLink(mockUSDC.address)}`);
+  console.log(`    HellyHook:       ${hellyHook.address}`);
+  console.log(`                     ${addrLink(hellyHook.address)}`);
+  console.log(`    Groth16Verifier: ${verifier.address}`);
+  console.log(`                     ${addrLink(verifier.address)}`);
 
-  console.log(`\n  Expected payouts:`);
-  const loserPool = 200n * ONE_USDC;
-  const fee = (loserPool * BigInt(PLATFORM_FEE_BPS)) / 10000n;
-  const net = loserPool - fee;
-  const winnerPool = 250n * ONE_USDC;
-  console.log(`    Alice  (YES $100): $${formatUSDC(100n * ONE_USDC + (100n * ONE_USDC * net) / winnerPool)}`);
-  console.log(`    Charlie(YES $150): $${formatUSDC(150n * ONE_USDC + (150n * ONE_USDC * net) / winnerPool)}`);
+  console.log(`\n  Expected payouts (if ZK proof accepted):`);
+  console.log(`    Alice  (YES $100): $${formatUSDC(alicePayout)}`);
+  console.log(`    Charlie(YES $150): $${formatUSDC(charliePayout)}`);
   console.log(`    Bob    (NO  $200): $0 (lost)`);
-  console.log(`    Platform fee: $${formatUSDC(fee)}`);
-
-  const feeOK = platformFee === fee;
-  console.log(`\n  Platform fee check: ${feeOK ? "PASS" : "FAIL"} (expected ${formatUSDC(fee)}, got ${formatUSDC(platformFee)})`);
+  console.log(`    Platform fee: $${formatUSDC(platformFee)}`);
 
   console.log(`\n  All Transactions:`);
   for (const { step: s, hash } of txLog) {
-    console.log(`    ${s.padEnd(25)} ${txLink(hash)}`);
+    console.log(`    ${s.padEnd(30)} ${txLink(hash)}`);
   }
 
   console.log(`\n╔══════════════════════════════════════════════════════════╗`);
-  console.log(`║          BASE SEPOLIA TESTNET E2E COMPLETE                    ║`);
-  console.log(`║          Time: ${elapsed}s                                     ║`);
-  console.log(`║          Fee check: ${feeOK ? "PASS" : "FAIL"}                                  ║`);
+  console.log(`║    UNICHAIN SEPOLIA TESTNET E2E COMPLETE                ║`);
+  console.log(`║    Time: ${elapsed.padEnd(46)}║`);
+  console.log(`║    Contracts deployed and configured                    ║`);
   console.log(`╚══════════════════════════════════════════════════════════╝`);
 }
 

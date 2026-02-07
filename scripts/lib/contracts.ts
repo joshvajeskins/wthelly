@@ -15,7 +15,7 @@ import {
   type Transport,
   formatUnits,
 } from "viem";
-import { foundry, baseSepolia } from "viem/chains";
+import { foundry, unichainSepolia } from "viem/chains";
 import { type PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 import {
   ANVIL_RPC_URL,
@@ -31,7 +31,7 @@ import {
 // --- Chain Helper ---
 
 export function getChain(): Chain {
-  return isTestnet() ? baseSepolia : foundry;
+  return isTestnet() ? unichainSepolia : foundry;
 }
 
 export function getExplorerTxUrl(hash: Hex): string {

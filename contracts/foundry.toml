@@ -20,3 +20,4 @@ remappings = [
 
 [rpc_endpoints]
 base_sepolia = "${TESTNET_RPC_URL}"
+unichain_sepolia = "https://sepolia.unichain.org"
