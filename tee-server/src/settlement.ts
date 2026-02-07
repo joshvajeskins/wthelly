@@ -59,6 +59,46 @@ export async function computeSettlement(
 
   const totalPool = winnerPool + loserPool;
 
+  // Edge case: nobody bet on the winning side — refund everyone, no fee
+  if (winnerPool === 0n) {
+    console.log(`[Settlement] No winners for market ${marketId} — refunding all bettors`);
+    const payouts: Array<{ address: string; amount: bigint }> = [];
+    const payoutAmounts: bigint[] = [];
+
+    for (const info of payoutInfos) {
+      payouts.push({ address: info.address, amount: info.betAmount });
+      payoutAmounts.push(info.betAmount);
+    }
+
+    let proof = null;
+    try {
+      proof = await generateSettlementProof(
+        outcomeNum,
+        0, // feeBps = 0 for refund
+        totalPool,
+        0n, // platformFee = 0
+        bets,
+        payoutAmounts
+      );
+      console.log(`[Settlement] ZK proof generated for market ${marketId} (refund)`);
+    } catch (error) {
+      console.error(`[Settlement] ZK proof generation failed (refund):`, error);
+    }
+
+    const result: SettlementResult = {
+      marketId,
+      outcome,
+      payouts,
+      platformFee: 0n,
+      totalPool,
+      proof,
+      settledAt: Date.now(),
+    };
+
+    betStore.setSettlement(marketId, result);
+    return result;
+  }
+
   // Platform fee from loser pool
   const platformFee = (loserPool * BigInt(config.feeBps)) / 10000n;
   const netDistributable = loserPool - platformFee;
@@ -68,7 +108,7 @@ export async function computeSettlement(
   const payoutAmounts: bigint[] = [];
 
   for (const info of payoutInfos) {
-    if (info.isWinner && winnerPool > 0n) {
+    if (info.isWinner) {
       // Winner gets original bet + proportional share of net distributable
       const share = (info.amount * netDistributable) / winnerPool;
       const payout = info.amount + share;
@@ -235,7 +275,7 @@ export async function settleOnChain(
       console.error(`[Settlement] On-chain settlement failed:`, error);
     }
   } else {
-    console.warn(`[Settlement] No proof available — skipping on-chain submission for ${marketId}`);
+    throw new Error(`[Settlement] No proof available — cannot submit on-chain settlement for ${marketId}`);
   }
 
   // Step 3: Close Clearnode app sessions with final allocations
