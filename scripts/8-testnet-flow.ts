@@ -2,30 +2,28 @@
  * Script 8: Unichain Sepolia Testnet E2E Flow
  *
  * Self-contained testnet deployment + full prediction market lifecycle
- * using the new oracle-based architecture (no commit-reveal).
+ * using the ERC-7824 Custody architecture.
  *
  * Flow:
  *   1. Check admin ETH balance
  *   2. Generate ephemeral wallets (Alice, Bob, Charlie)
  *   3. Fund wallets with ETH
- *   4. Deploy contracts (MockUSDC, HellyHook, MockVerifier)
+ *   4. Deploy contracts (MockUSDC, HellyHook, MockVerifier, Custody, Dummy)
  *   5. Configure (setVerifier, setTeeAddress)
  *   6. Create market with oracle price params
- *   7. Test deposit & withdraw cycle (verifies those functions work)
+ *   7. Test Custody deposit & withdraw cycle
  *   8. Fund the settlement pool (mint USDC directly to HellyHook)
  *   9. Simulate off-chain bets (state channels)
  *  10. Resolve market (admin resolves with YES outcome)
  *  11. Settle with ZK proof (MockVerifier for E2E)
- *  12. Verify final state (balances, market status, oracle params)
- *  13. Withdrawals (winners + admin withdraw payouts)
- *  14. Print summary
+ *  12. Verify final state (market status, oracle params)
+ *  13. Print summary
  *
  * Settlement model:
  *   In production, bets happen off-chain via Clearnode state channels.
  *   The TEE computes settlement and calls settleMarketWithProof which
- *   CREDITS winners' balances (+=). It does NOT debit losers.
- *   The total pool USDC must be in the contract before settlement.
- *   We simulate this by minting the pool directly to the contract.
+ *   verifies the ZK proof and records the settlement. It does NOT credit
+ *   balances — funds are managed by Custody.sol (ERC-7824).
  *
  * Run: npx tsx scripts/8-testnet-flow.ts
  * Prerequisites:
@@ -57,6 +55,7 @@ import {
   PLATFORM_FEE_BPS,
   HELLY_HOOK_ABI,
   ERC20_ABI,
+  CUSTODY_ABI,
   USDC_DECIMALS,
   EXPLORER_BASE_URL,
   getRpcUrl,
@@ -142,9 +141,9 @@ function step(name: string) {
   console.log(`${"━".repeat(60)}`);
 }
 
-function getContractBytecode(name: string): Hex {
-  const contractsDir = join(__dirname, "../contracts");
-  const artifactPath = join(contractsDir, `out/${name}.sol/${name}.json`);
+function getContractBytecode(name: string, baseDir: string = "contracts"): Hex {
+  const dir = join(__dirname, `../${baseDir}`);
+  const artifactPath = join(dir, `out/${name}.sol/${name}.json`);
   const artifact = JSON.parse(readFileSync(artifactPath, "utf-8"));
   return artifact.bytecode.object as Hex;
 }
@@ -153,17 +152,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Wait for RPC consistency after a TX confirmation.
-// Unichain Sepolia RPC may load-balance across nodes that haven't
-// all processed the latest block yet. A short delay ensures reads
-// return the post-TX state.
 const RPC_SETTLE_DELAY = 3000;
 
 async function waitForRpc(): Promise<void> {
   await sleep(RPC_SETTLE_DELAY);
 }
 
-// Track all TX hashes for summary
 const txLog: { step: string; hash: Hex }[] = [];
 
 function logTx(stepName: string, hash: Hex) {
@@ -172,7 +166,6 @@ function logTx(stepName: string, hash: Hex) {
   console.log(`  Explorer: ${txLink(hash)}`);
 }
 
-// Write contract and wait for receipt, return the TX hash
 async function writeAndWait(
   privateKey: Hex,
   address: Address,
@@ -196,7 +189,6 @@ async function writeAndWait(
   return hash;
 }
 
-// Read contract state (with optional delay for post-TX consistency)
 async function readContract(
   address: Address,
   abi: any,
@@ -216,7 +208,7 @@ async function main() {
   console.log("╔══════════════════════════════════════════════════════════╗");
   console.log("║    WTHELLY — Unichain Sepolia Testnet E2E Flow         ║");
   console.log("║                                                        ║");
-  console.log("║  Oracle-based architecture (no commit-reveal)          ║");
+  console.log("║  ERC-7824 Custody + Oracle-based architecture          ║");
   console.log("║  Off-chain bets via state channels                     ║");
   console.log("║  ZK proof settlement (MockVerifier for E2E)            ║");
   console.log("║                                                        ║");
@@ -285,8 +277,11 @@ async function main() {
   // ============================================================
   step("Step 3: Deploy Contracts to Unichain Sepolia");
 
-  console.log("  Building contracts...");
+  console.log("  Building HellyHook contracts...");
   execSync("forge build", { cwd: join(__dirname, "../contracts"), stdio: "pipe" });
+
+  console.log("  Building Nitrolite contracts (via_ir)...");
+  execSync("forge build", { cwd: join(__dirname, "../nitrolite/contract"), stdio: "pipe" });
 
   // Deploy MockUSDC
   console.log("\n  Deploying MockUSDC...");
@@ -314,6 +309,20 @@ async function main() {
   logTx("Deploy MockVerifier", mockVerifier.hash);
   console.log(`  MockVerifier: ${mockVerifier.address}`);
 
+  // Deploy Custody (ERC-7824)
+  console.log("\n  Deploying Custody (ERC-7824)...");
+  const custodyBytecode = getContractBytecode("Custody", "nitrolite/contract");
+  const custody = await deployContract(ADMIN_KEY, [], custodyBytecode);
+  logTx("Deploy Custody", custody.hash);
+  console.log(`  Custody: ${custody.address}`);
+
+  // Deploy Dummy Adjudicator
+  console.log("\n  Deploying Dummy Adjudicator...");
+  const dummyBytecode = getContractBytecode("Dummy", "nitrolite/contract");
+  const dummy = await deployContract(ADMIN_KEY, [], dummyBytecode);
+  logTx("Deploy Dummy", dummy.hash);
+  console.log(`  Dummy Adjudicator: ${dummy.address}`);
+
   // Save deployment info
   const deployment = {
     hellyHook: hellyHook.address,
@@ -328,7 +337,23 @@ async function main() {
     join(__dirname, "lib/deployment.json"),
     JSON.stringify(deployment, null, 2)
   );
-  console.log("\n  Deployment saved to scripts/lib/deployment.json");
+
+  // Save custody deployment
+  const custodyDeployment = {
+    custody: custody.address,
+    adjudicator: dummy.address,
+    balanceChecker: null,
+    broker: null,
+    usdc: mockUSDC.address,
+    deployer: ADMIN_ADDRESS,
+    chainId: 1301,
+    timestamp: new Date().toISOString(),
+  };
+  writeFileSync(
+    join(__dirname, "lib/custody-deployment.json"),
+    JSON.stringify(custodyDeployment, null, 2)
+  );
+  console.log("\n  Deployments saved to scripts/lib/");
 
   // ============================================================
   // STEP 4: Configure Verifier & TEE Address
@@ -349,7 +374,6 @@ async function main() {
   );
   logTx("Set TEE Address", setTeeHash);
 
-  // Wait for RPC nodes to sync before reading
   await waitForRpc();
 
   const configuredVerifier = await readContract(hellyHook.address, EXTENDED_ABI, "verifier");
@@ -375,9 +399,9 @@ async function main() {
   const question = "Will ETH hit $5k by end of 2026?";
   const marketId = keccak256(encodePacked(["string"], [question]));
   const now = BigInt(Math.floor(Date.now() / 1000));
-  const deadline = now + 600n; // 10 minutes (not enforced for admin resolveMarket)
+  const deadline = now + 600n; // 10 minutes
   const poolId = keccak256(encodePacked(["string"], ["ETH-USDC-pool"]));
-  const priceTarget = 79228162514264337593543950336n; // sqrtPriceX96 ~1.0
+  const priceTarget = 79228162514264337593543950336n;
   const priceAbove = true;
 
   console.log(`  Market ID: ${marketId}`);
@@ -401,59 +425,65 @@ async function main() {
   console.log(`  On-chain: question="${marketAfterCreate[0]}", deadline=${marketAfterCreate[1]}`);
 
   // ============================================================
-  // STEP 6: Test Deposit & Withdraw (verifies those functions work)
+  // STEP 6: Test Custody Deposit & Withdraw Cycle
   // ============================================================
-  step("Step 6: Test Deposit & Withdraw Cycle");
+  step("Step 6: Test Custody Deposit & Withdraw Cycle");
 
-  console.log("  Testing with Alice: mint 100 USDC → deposit → verify → withdraw → verify\n");
+  console.log("  Testing with Alice: mint 100 USDC → approve Custody → deposit → verify → withdraw → verify\n");
+
+  const testAmount = 100n * ONE_USDC;
 
   // Mint 100 USDC to Alice
-  const testAmount = 100n * ONE_USDC;
   const mintHash = await writeAndWait(
     ADMIN_KEY, mockUSDC.address, ERC20_ABI,
     "mint", [aliceAccount.address, testAmount],
   );
   logTx("Mint 100 USDC to Alice", mintHash);
 
-  // Alice approves HellyHook
+  // Alice approves Custody
   const approveHash = await writeAndWait(
     aliceKey, mockUSDC.address, ERC20_ABI,
-    "approve", [hellyHook.address, testAmount],
+    "approve", [custody.address, testAmount],
   );
-  logTx("Alice approve", approveHash);
+  logTx("Alice approve Custody", approveHash);
 
-  // Alice deposits
+  // Alice deposits to Custody
   const depositHash = await writeAndWait(
-    aliceKey, hellyHook.address, EXTENDED_ABI,
-    "deposit", [testAmount],
+    aliceKey, custody.address, CUSTODY_ABI,
+    "deposit", [aliceAccount.address, mockUSDC.address, testAmount],
   );
-  logTx("Alice deposit 100", depositHash);
+  logTx("Alice deposit to Custody", depositHash);
 
   await waitForRpc();
 
-  const aliceBalAfterDeposit = await readContract(
-    hellyHook.address, EXTENDED_ABI, "balances", [aliceAccount.address],
-  ) as bigint;
-  console.log(`  Alice HellyHook balance after deposit: ${formatUSDC(aliceBalAfterDeposit)} USDC`);
+  // Verify Custody balance
+  const aliceCustodyBal = await readContract(
+    custody.address, CUSTODY_ABI, "getAccountsBalances",
+    [[aliceAccount.address], [mockUSDC.address]],
+  ) as bigint[][];
+  const aliceBalAfterDeposit = aliceCustodyBal[0]?.[0] ?? 0n;
+  console.log(`  Alice Custody balance after deposit: ${formatUSDC(aliceBalAfterDeposit)} USDC`);
   if (aliceBalAfterDeposit !== testAmount) {
     console.error(`  ERROR: Expected ${formatUSDC(testAmount)}, got ${formatUSDC(aliceBalAfterDeposit)}`);
     process.exit(1);
   }
-  console.log("  Deposit verified.");
+  console.log("  Custody deposit verified.");
 
-  // Alice withdraws
+  // Alice withdraws from Custody
   const withdrawHash = await writeAndWait(
-    aliceKey, hellyHook.address, EXTENDED_ABI,
-    "withdraw", [testAmount],
+    aliceKey, custody.address, CUSTODY_ABI,
+    "withdraw", [mockUSDC.address, testAmount],
   );
-  logTx("Alice withdraw 100", withdrawHash);
+  logTx("Alice withdraw from Custody", withdrawHash);
 
   await waitForRpc();
 
-  const aliceBalAfterWithdraw = await readContract(
-    hellyHook.address, EXTENDED_ABI, "balances", [aliceAccount.address],
-  ) as bigint;
-  console.log(`  Alice HellyHook balance after withdraw: ${formatUSDC(aliceBalAfterWithdraw)} USDC`);
+  const aliceCustodyBal2 = await readContract(
+    custody.address, CUSTODY_ABI, "getAccountsBalances",
+    [[aliceAccount.address], [mockUSDC.address]],
+  ) as bigint[][];
+  const aliceBalAfterWithdraw = aliceCustodyBal2[0]?.[0] ?? 0n;
+  console.log(`  Alice Custody balance after withdraw: ${formatUSDC(aliceBalAfterWithdraw)} USDC`);
   if (aliceBalAfterWithdraw !== 0n) {
     console.error(`  ERROR: Expected 0, got ${formatUSDC(aliceBalAfterWithdraw)}`);
     process.exit(1);
@@ -463,17 +493,12 @@ async function main() {
     mockUSDC.address, ERC20_ABI, "balanceOf", [aliceAccount.address],
   ) as bigint;
   console.log(`  Alice USDC wallet after withdraw: ${formatUSDC(aliceUsdcAfterWithdraw)} USDC`);
-  console.log("  Deposit & Withdraw cycle PASSED.");
+  console.log("  Custody Deposit & Withdraw cycle PASSED.");
 
   // ============================================================
-  // STEP 7: Fund Settlement Pool
+  // STEP 7: Simulate Off-chain Bets
   // ============================================================
-  step("Step 7: Fund Settlement Pool");
-
-  // In production, the total pool comes from state channel custody (Clearnode).
-  // settleMarketWithProof CREDITS winners' balances (+=) but does NOT debit losers.
-  // The total pool USDC must be in the contract before settlement.
-  // We simulate this by minting the pool directly to the HellyHook contract.
+  step("Step 7: Simulate Off-chain Bets (State Channels)");
 
   const bets = [
     { name: "Alice", address: aliceAccount.address, key: aliceKey, isYes: true, amount: 100n * ONE_USDC },
@@ -481,57 +506,26 @@ async function main() {
     { name: "Charlie", address: charlieAccount.address, key: charlieKey, isYes: true, amount: 150n * ONE_USDC },
   ];
 
-  const totalPool = bets.reduce((sum, b) => sum + b.amount, 0n); // 450 USDC
-  console.log(`  Total pool (sum of all bets): ${formatUSDC(totalPool)} USDC`);
-  console.log(`  Minting ${formatUSDC(totalPool)} USDC directly to HellyHook contract...`);
-  console.log("  (In production, this comes from Clearnode state channel custody)\n");
-
-  const fundPoolHash = await writeAndWait(
-    ADMIN_KEY, mockUSDC.address, ERC20_ABI,
-    "mint", [hellyHook.address, totalPool],
-  );
-  logTx("Fund settlement pool", fundPoolHash);
-
-  await waitForRpc();
-
-  const contractUsdcBalance = await readContract(
-    mockUSDC.address, ERC20_ABI, "balanceOf", [hellyHook.address],
-  ) as bigint;
-  console.log(`  HellyHook USDC balance: ${formatUSDC(contractUsdcBalance)} USDC`);
-
-  // Also ensure Alice's USDC from the deposit test isn't still in the contract
-  // (she already withdrew it, so the contract balance should be exactly totalPool + alice's 100 she withdrew)
-  // Actually, Alice withdrew back to her wallet, so contract USDC = totalPool + 0 = totalPool
-  // Wait, the mint in step 6 was to Alice, not to the contract. And Alice deposited into HellyHook
-  // (transferred from Alice → HellyHook), then withdrew (transferred from HellyHook → Alice).
-  // So net HellyHook USDC = totalPool only. Correct.
-
-  // ============================================================
-  // STEP 8: Simulate Off-chain Bets
-  // ============================================================
-  step("Step 8: Simulate Off-chain Bets (State Channels)");
-
   console.log("  In production, bets go through Clearnode WebSocket state channels.");
-  console.log("  The TEE tracks all bets off-chain and computes settlement.\n");
+  console.log("  Funds are custodied by Custody.sol (ERC-7824), not HellyHook.\n");
 
   for (const bet of bets) {
     console.log(`  ${bet.name}: ${bet.isYes ? "YES" : "NO"} $${formatUSDC(bet.amount)} (off-chain)`);
   }
 
+  const totalPool = bets.reduce((sum, b) => sum + b.amount, 0n);
   const totalYes = bets.filter(b => b.isYes).reduce((sum, b) => sum + b.amount, 0n);
   const totalNo = bets.filter(b => !b.isYes).reduce((sum, b) => sum + b.amount, 0n);
   console.log(`\n  Total YES: $${formatUSDC(totalYes)} USDC`);
   console.log(`  Total NO:  $${formatUSDC(totalNo)} USDC`);
+  console.log(`  Total pool: $${formatUSDC(totalPool)} USDC`);
 
   // ============================================================
-  // STEP 9: Resolve Market
+  // STEP 8: Resolve Market
   // ============================================================
-  step("Step 9: Resolve Market → YES");
+  step("Step 8: Resolve Market → YES");
 
-  // resolveMarket() does NOT check deadline — admin can resolve at any time.
-  // In production, resolveMarketFromOracle() enforces deadline via block.timestamp.
-  console.log("  Admin resolving market with outcome: YES...");
-  console.log("  (resolveMarket has no deadline check — admin can resolve immediately)\n");
+  console.log("  Admin resolving market with outcome: YES...\n");
 
   const resolveHash = await writeAndWait(
     ADMIN_KEY, hellyHook.address, EXTENDED_ABI,
@@ -552,22 +546,14 @@ async function main() {
   }
 
   // ============================================================
-  // STEP 10: Settle with ZK Proof
+  // STEP 9: Settle with ZK Proof
   // ============================================================
-  step("Step 10: Settle Market with ZK Proof");
+  step("Step 9: Settle Market with ZK Proof (Record-Only)");
 
-  // Compute settlement payouts:
-  // Winners (YES): Alice (100) + Charlie (150) = 250 USDC
-  // Losers (NO): Bob (200) USDC
-  // Platform fee = 2% of loser pool = 200 * 200 / 10000 = 4 USDC
-  // Net distributable from losers = 200 - 4 = 196 USDC
-  // Alice payout = 100 + (100/250) * 196 = 100 + 78.4 = 178.4 USDC
-  // Charlie payout = 150 + (150/250) * 196 = 150 + 117.6 = 267.6 USDC
-  // Verification: 178.4 + 267.6 + 4 = 450 = totalPool ✓
-  const loserPool = totalNo; // 200 USDC
+  const loserPool = totalNo;
   const platformFee = (loserPool * BigInt(PLATFORM_FEE_BPS)) / 10000n;
   const netDistributable = loserPool - platformFee;
-  const winnerPool = totalYes; // 250 USDC
+  const winnerPool = totalYes;
 
   const aliceBet = 100n * ONE_USDC;
   const charlieBet = 150n * ONE_USDC;
@@ -582,7 +568,6 @@ async function main() {
   console.log(`    Alice payout:     ${formatUSDC(alicePayout)} USDC`);
   console.log(`    Charlie payout:   ${formatUSDC(charliePayout)} USDC`);
 
-  // Verify conservation: payouts + fee = totalPool
   const totalPayouts = alicePayout + charliePayout;
   const conservationCheck = totalPayouts + platformFee === totalPool;
   console.log(`    Conservation: ${formatUSDC(totalPayouts)} + ${formatUSDC(platformFee)} = ${formatUSDC(totalPayouts + platformFee)} ${conservationCheck ? "✓" : "FAIL"}`);
@@ -599,19 +584,20 @@ async function main() {
   const pB: [[bigint, bigint], [bigint, bigint]] = [[0n, 0n], [0n, 0n]];
   const pC: [bigint, bigint] = [0n, 0n];
 
-  console.log("\n  Calling settleMarketWithProof...");
+  console.log("\n  Calling settleMarketWithProof (record-only — no balance credits)...");
   const settleHash = await writeAndWait(
     ADMIN_KEY, hellyHook.address, EXTENDED_ABI,
     "settleMarketWithProof",
     [marketId, recipients, amounts, totalPool, platformFee, pA, pB, pC],
   );
   logTx("Settle Market", settleHash);
-  console.log("  Market settled! Bet directions NEVER revealed on-chain.");
+  console.log("  Market settled! Proof verified. Bet directions NEVER revealed on-chain.");
+  console.log("  NOTE: Payouts are handled off-chain via Custody.sol state channels.");
 
   // ============================================================
-  // STEP 11: Verify Final State
+  // STEP 10: Verify Final State
   // ============================================================
-  step("Step 11: Verify Final State");
+  step("Step 10: Verify Final State");
 
   await waitForRpc();
 
@@ -628,30 +614,6 @@ async function main() {
     process.exit(1);
   }
 
-  // Check balances — settlement credits winners + admin
-  console.log("\n  HellyHook balances after settlement:");
-
-  const aliceFinalBal = await readContract(
-    hellyHook.address, EXTENDED_ABI, "balances", [aliceAccount.address],
-  ) as bigint;
-  const bobFinalBal = await readContract(
-    hellyHook.address, EXTENDED_ABI, "balances", [bobAccount.address],
-  ) as bigint;
-  const charlieFinalBal = await readContract(
-    hellyHook.address, EXTENDED_ABI, "balances", [charlieAccount.address],
-  ) as bigint;
-  const adminFinalBal = await readContract(
-    hellyHook.address, EXTENDED_ABI, "balances", [ADMIN_ADDRESS],
-  ) as bigint;
-
-  console.log(`    Alice   (YES winner): ${formatUSDC(aliceFinalBal)} USDC ${aliceFinalBal === alicePayout ? "✓" : "MISMATCH"}`);
-  console.log(`    Bob     (NO  loser):  ${formatUSDC(bobFinalBal)} USDC ${bobFinalBal === 0n ? "✓" : "MISMATCH"}`);
-  console.log(`    Charlie (YES winner): ${formatUSDC(charlieFinalBal)} USDC ${charlieFinalBal === charliePayout ? "✓" : "MISMATCH"}`);
-  console.log(`    Admin   (fee):        ${formatUSDC(adminFinalBal)} USDC ${adminFinalBal === platformFee ? "✓" : "MISMATCH"}`);
-
-  const totalBalances = aliceFinalBal + bobFinalBal + charlieFinalBal + adminFinalBal;
-  console.log(`    Total:                ${formatUSDC(totalBalances)} USDC ${totalBalances === totalPool ? "✓ = totalPool" : "MISMATCH"}`);
-
   // Verify oracle state
   const storedPoolId = await readContract(hellyHook.address, EXTENDED_ABI, "marketPoolId", [marketId]);
   const storedPriceTarget = await readContract(hellyHook.address, EXTENDED_ABI, "marketPriceTarget", [marketId]);
@@ -661,58 +623,6 @@ async function main() {
   console.log(`    poolId:      ${(storedPoolId as string).slice(0, 18)}...`);
   console.log(`    priceTarget: ${storedPriceTarget}`);
   console.log(`    priceAbove:  ${storedPriceAbove}`);
-
-  // ============================================================
-  // STEP 12: Withdrawals
-  // ============================================================
-  step("Step 12: Withdraw Payouts");
-
-  // Winners and admin withdraw their payouts
-  const withdrawals = [
-    { name: "Alice", key: aliceKey, address: aliceAccount.address, expected: alicePayout },
-    { name: "Charlie", key: charlieKey, address: charlieAccount.address, expected: charliePayout },
-    { name: "Admin", key: ADMIN_KEY, address: ADMIN_ADDRESS, expected: platformFee },
-  ];
-
-  for (const w of withdrawals) {
-    const bal = await readContract(
-      hellyHook.address, EXTENDED_ABI, "balances", [w.address],
-    ) as bigint;
-
-    if (bal > 0n) {
-      console.log(`\n  ${w.name} withdrawing ${formatUSDC(bal)} USDC...`);
-      const wHash = await writeAndWait(
-        w.key, hellyHook.address, EXTENDED_ABI,
-        "withdraw", [bal],
-      );
-      logTx(`Withdraw ${w.name}`, wHash);
-
-      await waitForRpc();
-
-      const usdcBal = await readContract(
-        mockUSDC.address, ERC20_ABI, "balanceOf", [w.address],
-      ) as bigint;
-      console.log(`    USDC wallet balance: ${formatUSDC(usdcBal)} USDC`);
-
-      const hookBal = await readContract(
-        hellyHook.address, EXTENDED_ABI, "balances", [w.address],
-      ) as bigint;
-      console.log(`    HellyHook balance: ${formatUSDC(hookBal)} USDC ${hookBal === 0n ? "✓" : "ERROR"}`);
-    }
-  }
-
-  // Verify Bob has nothing to withdraw
-  const bobBal = await readContract(
-    hellyHook.address, EXTENDED_ABI, "balances", [bobAccount.address],
-  ) as bigint;
-  console.log(`\n  Bob (loser): HellyHook balance = ${formatUSDC(bobBal)} USDC ${bobBal === 0n ? "✓ (lost bet)" : "ERROR"}`);
-
-  // Verify contract USDC is drained
-  await waitForRpc();
-  const contractFinalUsdc = await readContract(
-    mockUSDC.address, ERC20_ABI, "balanceOf", [hellyHook.address],
-  ) as bigint;
-  console.log(`\n  HellyHook contract USDC remaining: ${formatUSDC(contractFinalUsdc)} USDC ${contractFinalUsdc === 0n ? "✓ (fully drained)" : ""}`);
 
   // ============================================================
   // SUMMARY
@@ -734,20 +644,23 @@ async function main() {
   console.log(`                   ${addrLink(hellyHook.address)}`);
   console.log(`    MockVerifier:  ${mockVerifier.address}`);
   console.log(`                   ${addrLink(mockVerifier.address)}`);
+  console.log(`    Custody:       ${custody.address}`);
+  console.log(`                   ${addrLink(custody.address)}`);
+  console.log(`    Adjudicator:   ${dummy.address}`);
+  console.log(`                   ${addrLink(dummy.address)}`);
 
-  console.log(`\n  Settlement:`);
+  console.log(`\n  Settlement (record-only — payouts via Custody):`);
   console.log(`    Alice  (YES $100): $${formatUSDC(alicePayout)} payout ✓`);
   console.log(`    Charlie(YES $150): $${formatUSDC(charliePayout)} payout ✓`);
   console.log(`    Bob    (NO  $200): $0 (lost) ✓`);
   console.log(`    Platform fee:      $${formatUSDC(platformFee)} ✓`);
 
   console.log(`\n  Verifications:`);
-  console.log(`    Deposit/Withdraw cycle: PASS`);
-  console.log(`    Market creation:        PASS`);
-  console.log(`    Market resolution:      PASS`);
-  console.log(`    ZK proof settlement:    PASS`);
-  console.log(`    Payout conservation:    PASS (${formatUSDC(totalPool)} total)`);
-  console.log(`    Winner withdrawals:     PASS`);
+  console.log(`    Custody deposit/withdraw:  PASS`);
+  console.log(`    Market creation:           PASS`);
+  console.log(`    Market resolution:         PASS`);
+  console.log(`    ZK proof settlement:       PASS`);
+  console.log(`    Payout conservation:       PASS (${formatUSDC(totalPool)} total)`);
 
   console.log(`\n  All Transactions (${txLog.length}):`);
   for (const { step: s, hash } of txLog) {
@@ -756,6 +669,7 @@ async function main() {
 
   console.log(`\n╔══════════════════════════════════════════════════════════╗`);
   console.log(`║    UNICHAIN SEPOLIA TESTNET E2E: ALL PASS               ║`);
+  console.log(`║    ERC-7824 Custody Architecture                        ║`);
   console.log(`║    Time: ${elapsed.padEnd(47)}║`);
   console.log(`╚══════════════════════════════════════════════════════════╝`);
 }

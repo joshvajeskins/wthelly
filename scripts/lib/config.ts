@@ -31,7 +31,30 @@ export function getDeployment(): DeploymentInfo {
   return JSON.parse(readFileSync(DEPLOYMENT_FILE, "utf-8"));
 }
 
-// --- Yellow Network / Clearnode contracts (from docker-compose) ---
+// --- Custody Deployment Info (written by deploy-custody.ts) ---
+export interface CustodyDeploymentInfo {
+  custody: Address;
+  adjudicator: Address;
+  balanceChecker: Address;
+  broker: Address | null;
+  usdc: Address;
+  deployer: Address;
+  chainId: number;
+  timestamp: string;
+}
+
+const CUSTODY_DEPLOYMENT_FILE = join(__dirname, "custody-deployment.json");
+
+export function getCustodyDeployment(): CustodyDeploymentInfo {
+  if (!existsSync(CUSTODY_DEPLOYMENT_FILE)) {
+    throw new Error(
+      "Custody deployment not found. Run `npx tsx scripts/deploy-custody.ts` first."
+    );
+  }
+  return JSON.parse(readFileSync(CUSTODY_DEPLOYMENT_FILE, "utf-8"));
+}
+
+// --- Fallback: Yellow Network / Clearnode contracts ---
 export const YELLOW_CONTRACTS = {
   Custody: "0x8658501c98C3738026c4e5c361c6C3fa95DfB255" as Address,
   Adjudicator: "0xcbbc03a873c11beeFA8D99477E830be48d8Ae6D7" as Address,
@@ -106,13 +129,6 @@ export const HELLY_HOOK_ABI = [
   },
   {
     type: "function",
-    name: "balances",
-    inputs: [{ name: "", type: "address" }],
-    outputs: [{ type: "uint256" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
     name: "marketExists",
     inputs: [{ name: "", type: "bytes32" }],
     outputs: [{ type: "bool" }],
@@ -139,20 +155,6 @@ export const HELLY_HOOK_ABI = [
       { name: "marketId", type: "bytes32" },
       { name: "outcome", type: "bool" },
     ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "deposit",
-    inputs: [{ name: "amount", type: "uint256" }],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "withdraw",
-    inputs: [{ name: "amount", type: "uint256" }],
     outputs: [],
     stateMutability: "nonpayable",
   },
@@ -263,22 +265,6 @@ export const HELLY_HOOK_ABI = [
   },
   {
     type: "event",
-    name: "Deposited",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "Withdrawn",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
     name: "PriceUpdated",
     inputs: [
       { name: "poolId", type: "bytes32", indexed: true },
@@ -367,6 +353,41 @@ export const ERC20_ABI = [
     name: "symbol",
     inputs: [],
     outputs: [{ type: "string" }],
+    stateMutability: "view",
+  },
+] as const;
+
+// --- Custody ABI (ERC-7824) ---
+export const CUSTODY_ABI = [
+  {
+    type: "function",
+    name: "deposit",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getAccountsBalances",
+    inputs: [
+      { name: "accounts", type: "address[]" },
+      { name: "tokens", type: "address[]" },
+    ],
+    outputs: [{ type: "uint256[][]" }],
     stateMutability: "view",
   },
 ] as const;

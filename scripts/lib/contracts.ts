@@ -118,26 +118,29 @@ export async function createMarket(
   });
 }
 
-export async function depositToHook(
+export async function depositToCustody(
   userKey: Hex,
+  custodyAddress: Address,
+  tokenAddress: Address,
   amount: bigint
 ): Promise<Hex> {
-  const { hellyHook, mockUSDC } = getDeployment();
+  const account = privateKeyToAccount(userKey);
 
   // Approve
   await writeAndWait(userKey, {
-    address: mockUSDC,
+    address: tokenAddress,
     abi: ERC20_ABI,
     functionName: "approve",
-    args: [hellyHook, amount],
+    args: [custodyAddress, amount],
   });
 
-  // Deposit
+  // Deposit to Custody
+  const { CUSTODY_ABI } = await import("./config.js");
   return writeAndWait(userKey, {
-    address: hellyHook,
-    abi: HELLY_HOOK_ABI,
+    address: custodyAddress,
+    abi: CUSTODY_ABI,
     functionName: "deposit",
-    args: [amount],
+    args: [account.address, tokenAddress, amount],
   });
 }
 
@@ -155,16 +158,18 @@ export async function resolveMarket(
   });
 }
 
-export async function withdrawFromHook(
+export async function withdrawFromCustody(
   userKey: Hex,
+  custodyAddress: Address,
+  tokenAddress: Address,
   amount: bigint
 ): Promise<Hex> {
-  const { hellyHook } = getDeployment();
+  const { CUSTODY_ABI } = await import("./config.js");
   return writeAndWait(userKey, {
-    address: hellyHook,
-    abi: HELLY_HOOK_ABI,
+    address: custodyAddress,
+    abi: CUSTODY_ABI,
     functionName: "withdraw",
-    args: [amount],
+    args: [tokenAddress, amount],
   });
 }
 
@@ -202,16 +207,22 @@ export async function getMarket(marketId: Hex) {
   };
 }
 
-export async function getBalance(user: Address): Promise<bigint> {
-  const { hellyHook } = getDeployment();
+export async function getCustodyBalance(
+  user: Address,
+  custodyAddress: Address,
+  tokenAddress: Address,
+): Promise<bigint> {
   const client = getPublicClient();
+  const { CUSTODY_ABI } = await import("./config.js");
 
-  return (await client.readContract({
-    address: hellyHook,
-    abi: HELLY_HOOK_ABI,
-    functionName: "balances",
-    args: [user],
-  })) as bigint;
+  const result = await client.readContract({
+    address: custodyAddress,
+    abi: CUSTODY_ABI,
+    functionName: "getAccountsBalances",
+    args: [[user], [tokenAddress]],
+  }) as bigint[][];
+
+  return result[0]?.[0] ?? 0n;
 }
 
 export async function getUSDCBalance(user: Address): Promise<bigint> {
