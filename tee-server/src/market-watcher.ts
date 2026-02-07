@@ -10,10 +10,13 @@ import type { BalanceTracker } from './balance-tracker.js';
 import { settleOnChain } from './settlement.js';
 import type { config as Config } from './config.js';
 
+const MAX_SETTLEMENT_RETRIES = 3;
+
 export class MarketWatcher {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private lastBlock: bigint = 0n;
   private settledMarkets: Set<string> = new Set();
+  private retryCount: Map<string, number> = new Map();
 
   constructor(
     private chainClient: ChainClient,
@@ -88,8 +91,21 @@ export class MarketWatcher {
           `[MarketWatcher] Auto-settlement complete for ${marketId.slice(0, 10)}... txHash=${result.txHash ?? 'none'}`
         );
       } catch (error) {
-        console.error(`[MarketWatcher] Auto-settlement failed for ${marketId.slice(0, 10)}...:`, error);
-        // Will retry on next poll cycle since settledMarkets wasn't updated
+        const retries = (this.retryCount.get(marketId) ?? 0) + 1;
+        this.retryCount.set(marketId, retries);
+
+        if (retries >= MAX_SETTLEMENT_RETRIES) {
+          console.error(
+            `[MarketWatcher] Auto-settlement permanently failed for ${marketId.slice(0, 10)}... after ${retries} attempts:`,
+            error
+          );
+          this.settledMarkets.add(marketId); // Stop retrying
+        } else {
+          console.warn(
+            `[MarketWatcher] Auto-settlement failed for ${marketId.slice(0, 10)}... (attempt ${retries}/${MAX_SETTLEMENT_RETRIES}):`,
+            error
+          );
+        }
       }
     }
   }
