@@ -96,11 +96,11 @@ export const CLEARNODE_ASSET_SYMBOL = "wthelly.usd";
 // Clearnode WebSocket URL
 export const CLEARNODE_WS_URL = process.env.NEXT_PUBLIC_CLEARNODE_WS_URL || "ws://localhost:8000/ws";
 
-// TEE public address (for app session participant)
-export const TEE_ADDRESS = (process.env.NEXT_PUBLIC_TEE_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`;
+// TEE public address (broker/admin — derived from EVM_PRIVATE_KEY)
+export const TEE_ADDRESS = "0x32FE11d9900D63350016374BE98ff37c3Af75847" as `0x${string}`;
 
-// TEE public key (ECIES encryption target)
-export const TEE_PUBLIC_KEY = (process.env.NEXT_PUBLIC_TEE_PUBLIC_KEY || "") as string;
+// TEE public key (ECIES encryption target — uncompressed secp256k1, 65 bytes)
+export const TEE_PUBLIC_KEY = "0x04531049d0d76160fa47d3df1e21a92a41af0d2f6ce098d4843a8fb3979b5db8a3a1af13af718edebd4c712f35c7c6defe97aeab227f627e5dc530329a522c40b8";
 
 // Contract addresses (Unichain Sepolia)
 export const CONTRACTS = {

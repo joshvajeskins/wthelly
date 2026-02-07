@@ -3,10 +3,12 @@
  * Uses native WebSocket (not `ws` npm package).
  */
 
-import { type Hex } from "viem";
+import { type Hex, type Address } from "viem";
 import {
   NitroliteRPC,
   type MessageSigner,
+  type RPCChannel,
+  type RPCChannelOperationState,
 } from "@erc7824/nitrolite";
 
 export interface ClearnodeClientConfig {
@@ -201,21 +203,23 @@ export class ClearnodeClient {
 
   /**
    * Create a new state channel with Clearnode.
+   * Returns the broker's pre-signed channel data for on-chain creation.
    */
   async createChannel(
     signer: MessageSigner,
     params: {
       chainId: number;
-      participant: string;
-      token: string;
-      amount: string;
+      token: Address;
     }
-  ): Promise<{ channelId: string }> {
+  ): Promise<{
+    channelId: Hex;
+    channel: RPCChannel;
+    state: RPCChannelOperationState;
+    serverSignature: Hex;
+  }> {
     return this.callRpc(signer, "create_channel", {
-      participant: params.participant,
       chain_id: params.chainId,
       token: params.token,
-      amount: params.amount,
     });
   }
 
@@ -233,14 +237,19 @@ export class ClearnodeClient {
   }
 
   /**
-   * Close (withdraw from) a state channel.
+   * Close a state channel. Returns the final state signed by broker.
    */
   async closeChannel(
     signer: MessageSigner,
-    params: { channelId: string }
-  ): Promise<{ success: boolean }> {
+    params: { channelId: Hex; fundsDestination: Address }
+  ): Promise<{
+    channelId: Hex;
+    state: RPCChannelOperationState;
+    serverSignature: Hex;
+  }> {
     return this.callRpc(signer, "close_channel", {
       channel_id: params.channelId,
+      funds_destination: params.fundsDestination,
     });
   }
 

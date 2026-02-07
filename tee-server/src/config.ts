@@ -14,6 +14,9 @@ export const config = {
   teeMode: (process.env.TEE_MODE || 'local-dev') as 'local-dev' | 'enclave',
   enclaveKeyPath: process.env.ENCLAVE_KEY_PATH || '/app/ecdsa.sec',
 
+  // EVM private key — used in local-dev mode as the TEE/broker identity
+  evmPrivateKey: process.env.EVM_PRIVATE_KEY || '',
+
   // Clearnode WebSocket
   clearnodeWsUrl: process.env.CLEARNODE_WS_URL || 'ws://localhost:8000/ws',
 

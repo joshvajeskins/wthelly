@@ -38,10 +38,17 @@ export class TeeAttestationService {
         console.error('[TEE] Failed to read enclave key, falling back to ephemeral');
         this.privateKey = secp256k1.utils.randomPrivateKey();
       }
+    } else if (config.evmPrivateKey) {
+      // Local-dev with fixed EVM key (broker/TEE identity)
+      const keyHex = config.evmPrivateKey.startsWith('0x')
+        ? config.evmPrivateKey.slice(2)
+        : config.evmPrivateKey;
+      this.privateKey = hexToBytes(keyHex);
+      console.log('[TEE] Local-dev mode: loaded EVM_PRIVATE_KEY from env');
     } else {
-      // Development: generate ephemeral keypair
+      // Fallback: generate ephemeral keypair (not recommended)
       this.privateKey = secp256k1.utils.randomPrivateKey();
-      console.log('[TEE] Local-dev mode: generated ephemeral keypair');
+      console.warn('[TEE] WARNING: No EVM_PRIVATE_KEY set — using ephemeral keypair. Broker identity will not match Clearnode.');
     }
 
     // Derive public key (uncompressed, 65 bytes)
