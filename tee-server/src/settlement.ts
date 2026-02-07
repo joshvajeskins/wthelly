@@ -59,30 +59,16 @@ export async function computeSettlement(
 
   const totalPool = winnerPool + loserPool;
 
-  // Edge case: nobody bet on the winning side — refund everyone, no fee
+  // Edge case: nobody bet on the winning side — refund everyone, no fee.
+  // ZK proof cannot be generated here because the circuit enforces
+  // (1 - isWinner[i]) * payouts[i] === 0, and all bettors are "losers".
+  // Settlement proceeds off-chain only (Clearnode channel close + balance unlock).
   if (winnerPool === 0n) {
-    console.log(`[Settlement] No winners for market ${marketId} — refunding all bettors`);
+    console.log(`[Settlement] No winners for market ${marketId} — refunding all bettors (off-chain only, no ZK proof)`);
     const payouts: Array<{ address: string; amount: bigint }> = [];
-    const payoutAmounts: bigint[] = [];
 
     for (const info of payoutInfos) {
       payouts.push({ address: info.address, amount: info.betAmount });
-      payoutAmounts.push(info.betAmount);
-    }
-
-    let proof = null;
-    try {
-      proof = await generateSettlementProof(
-        outcomeNum,
-        0, // feeBps = 0 for refund
-        totalPool,
-        0n, // platformFee = 0
-        bets,
-        payoutAmounts
-      );
-      console.log(`[Settlement] ZK proof generated for market ${marketId} (refund)`);
-    } catch (error) {
-      console.error(`[Settlement] ZK proof generation failed (refund):`, error);
     }
 
     const result: SettlementResult = {
@@ -91,7 +77,7 @@ export async function computeSettlement(
       payouts,
       platformFee: 0n,
       totalPool,
-      proof,
+      proof: null,
       settledAt: Date.now(),
     };
 
@@ -274,8 +260,12 @@ export async function settleOnChain(
     } catch (error) {
       console.error(`[Settlement] On-chain settlement failed:`, error);
     }
+  } else if (result.platformFee === 0n && result.payouts.some(p => p.amount > 0n)) {
+    // No-winners refund case: ZK circuit can't prove losers receiving payouts,
+    // so on-chain proof submission is skipped. Settlement proceeds off-chain only.
+    console.warn(`[Settlement] No-winners refund for ${marketId} — skipping on-chain proof (off-chain settlement only)`);
   } else {
-    throw new Error(`[Settlement] No proof available — cannot submit on-chain settlement for ${marketId}`);
+    throw new Error(`[Settlement] ZK proof generation failed — cannot submit on-chain settlement for ${marketId}`);
   }
 
   // Step 3: Close Clearnode app sessions with final allocations
