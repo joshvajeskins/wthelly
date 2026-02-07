@@ -1,7 +1,7 @@
 import { createPublicClient, http } from "viem";
-import { baseSepolia } from "viem/chains";
+import { unichainSepolia } from "viem/chains";
 
 export const publicClient = createPublicClient({
-  chain: baseSepolia,
-  transport: http(),
+  chain: unichainSepolia,
+  transport: http("https://sepolia.unichain.org"),
 });

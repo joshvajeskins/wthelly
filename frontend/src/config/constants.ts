@@ -101,12 +101,12 @@ export const TEE_PUBLIC_KEY = (process.env.NEXT_PUBLIC_TEE_PUBLIC_KEY || "") as 
 
 // Contract addresses (Unichain Sepolia)
 export const CONTRACTS = {
-  hellyHook: (process.env.NEXT_PUBLIC_HELLY_HOOK_ADDRESS || "0x218dc19b1e7dab45149a564839fffd2d6ed9e1ce") as `0x${string}`,
-  usdc: (process.env.NEXT_PUBLIC_USDC_ADDRESS || "0xf678f6cca06fa7b94e59f84229c13942a90a03b8") as `0x${string}`,
+  hellyHook: (process.env.NEXT_PUBLIC_HELLY_HOOK_ADDRESS || "0x6feb4f3eed23d6cdda54ec67d5d649be015f782d") as `0x${string}`,
+  usdc: (process.env.NEXT_PUBLIC_USDC_ADDRESS || "0xd8f50a509efe389574dd378b0ef03e33558222ea") as `0x${string}`,
 };
 
-// HellyHook deployment block on Base Sepolia (for efficient event scanning)
-export const HELLY_HOOK_DEPLOY_BLOCK = 22380000n;
+// HellyHook deployment block on Unichain Sepolia (for efficient event scanning)
+export const HELLY_HOOK_DEPLOY_BLOCK = 43582376n;
 
 // USDC decimals
 export const USDC_DECIMALS = 6;
