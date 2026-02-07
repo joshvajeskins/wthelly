@@ -30,13 +30,6 @@ export const HELLY_HOOK_ABI = [
   },
   {
     type: "function",
-    name: "balances",
-    inputs: [{ name: "", type: "address" }],
-    outputs: [{ type: "uint256" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
     name: "marketExists",
     inputs: [{ name: "", type: "bytes32" }],
     outputs: [{ type: "bool" }],
@@ -70,20 +63,6 @@ export const HELLY_HOOK_ABI = [
     type: "function",
     name: "resolveMarketFromOracle",
     inputs: [{ name: "marketId", type: "bytes32" }],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "deposit",
-    inputs: [{ name: "amount", type: "uint256" }],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "withdraw",
-    inputs: [{ name: "amount", type: "uint256" }],
     outputs: [],
     stateMutability: "nonpayable",
   },
@@ -215,22 +194,6 @@ export const HELLY_HOOK_ABI = [
   },
   {
     type: "event",
-    name: "Deposited",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "Withdrawn",
-    inputs: [
-      { name: "user", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
     name: "PriceUpdated",
     inputs: [
       { name: "poolId", type: "bytes32", indexed: true },
@@ -320,5 +283,57 @@ export const ERC20_ABI = [
     inputs: [],
     outputs: [{ type: "string" }],
     stateMutability: "view",
+  },
+] as const;
+
+export const CUSTODY_ABI = [
+  {
+    type: "function",
+    name: "deposit",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getAccountsBalances",
+    inputs: [
+      { name: "accounts", type: "address[]" },
+      { name: "tokens", type: "address[]" },
+    ],
+    outputs: [{ type: "uint256[][]" }],
+    stateMutability: "view",
+  },
+  {
+    type: "event",
+    name: "Deposited",
+    inputs: [
+      { name: "wallet", type: "address", indexed: true },
+      { name: "token", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "Withdrawn",
+    inputs: [
+      { name: "wallet", type: "address", indexed: true },
+      { name: "token", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
   },
 ] as const;

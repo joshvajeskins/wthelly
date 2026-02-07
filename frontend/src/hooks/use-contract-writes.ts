@@ -4,8 +4,9 @@ import { useState } from "react";
 import { type Abi } from "viem";
 import { publicClient } from "@/config/viem";
 import { useWalletClient } from "@/hooks/use-wallet-client";
-import { HELLY_HOOK_ABI, ERC20_ABI } from "@/config/abis";
-import { CONTRACTS } from "@/config/constants";
+import { HELLY_HOOK_ABI, ERC20_ABI, CUSTODY_ABI } from "@/config/abis";
+import { CONTRACTS, CLEARNODE_CONTRACTS } from "@/config/constants";
+import { usePrivyAccount } from "@/hooks/use-privy-account";
 
 function useContractWrite() {
   const { getWalletClient } = useWalletClient();
@@ -72,7 +73,7 @@ export function useApproveUsdc() {
       address: CONTRACTS.usdc,
       abi: ERC20_ABI as Abi,
       functionName: "approve",
-      args: [CONTRACTS.hellyHook, amount],
+      args: [CLEARNODE_CONTRACTS.custody, amount],
     });
   };
 
@@ -82,13 +83,15 @@ export function useApproveUsdc() {
 export function useDeposit() {
   const { writeContractAsync, hash, isPending, isConfirming, isSuccess, error } =
     useContractWrite();
+  const { address } = usePrivyAccount();
 
   const deposit = async (amount: bigint) => {
+    if (!address) throw new Error("Wallet not connected");
     return writeContractAsync({
-      address: CONTRACTS.hellyHook,
-      abi: HELLY_HOOK_ABI as Abi,
+      address: CLEARNODE_CONTRACTS.custody,
+      abi: CUSTODY_ABI as Abi,
       functionName: "deposit",
-      args: [amount],
+      args: [address, CLEARNODE_CONTRACTS.usdc, amount],
     });
   };
 
@@ -101,10 +104,10 @@ export function useWithdraw() {
 
   const withdraw = async (amount: bigint) => {
     return writeContractAsync({
-      address: CONTRACTS.hellyHook,
-      abi: HELLY_HOOK_ABI as Abi,
+      address: CLEARNODE_CONTRACTS.custody,
+      abi: CUSTODY_ABI as Abi,
       functionName: "withdraw",
-      args: [amount],
+      args: [CLEARNODE_CONTRACTS.usdc, amount],
     });
   };
 

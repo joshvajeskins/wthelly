@@ -83,12 +83,15 @@ export const EXTERNAL_LINKS = {
 // TEE server URL
 export const TEE_SERVER_URL = process.env.NEXT_PUBLIC_TEE_SERVER_URL || "http://localhost:3001";
 
-// Clearnode / Yellow Network contract addresses (deterministic from docker-compose)
+// Clearnode / ERC-7824 contract addresses (deployed on Unichain Sepolia)
 export const CLEARNODE_CONTRACTS = {
-  custody: "0x8658501c98C3738026c4e5c361c6C3fa95DfB255" as `0x${string}`,
-  adjudicator: "0xcbbc03a873c11beeFA8D99477E830be48d8Ae6D7" as `0x${string}`,
-  usdc: "0xbD24c53072b9693A35642412227043Ffa5fac382" as `0x${string}`,
+  custody: (process.env.NEXT_PUBLIC_CUSTODY_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`,
+  adjudicator: (process.env.NEXT_PUBLIC_ADJUDICATOR_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`,
+  usdc: "0xd8f50a509efe389574dd378b0ef03e33558222ea" as `0x${string}`,
 } as const;
+
+// Asset symbol matching Clearnode assets.yaml
+export const CLEARNODE_ASSET_SYMBOL = "wthelly.usd";
 
 // Clearnode WebSocket URL
 export const CLEARNODE_WS_URL = process.env.NEXT_PUBLIC_CLEARNODE_WS_URL || "ws://localhost:8000/ws";

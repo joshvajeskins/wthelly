@@ -10,7 +10,7 @@ import { TxStatus } from "@/components/shared/tx-status";
 import { formatCurrency } from "@/lib/format";
 import { USDC_DECIMALS } from "@/config/constants";
 import {
-  useHellyBalance,
+  useCustodyBalance,
   useUsdcBalance,
   useUsdcAllowance,
 } from "@/hooks/use-contract-reads";
@@ -20,7 +20,6 @@ import {
   useDeposit,
   useWithdraw,
 } from "@/hooks/use-contract-writes";
-import { CONTRACTS } from "@/config/constants";
 import {
   Card,
   CardContent,
@@ -38,7 +37,7 @@ export default function DepositPage() {
   const [withdrawAmount, setWithdrawAmount] = useState("");
 
   // Read contract data
-  const { data: hellyBalanceRaw, refetch: refetchHelly } = useHellyBalance(address);
+  const { data: custodyBalanceRaw, refetch: refetchCustody } = useCustodyBalance(address);
   const { data: usdcBalanceRaw, refetch: refetchUsdc } = useUsdcBalance(address);
   const { data: allowanceRaw, refetch: refetchAllowance } = useUsdcAllowance(address);
 
@@ -48,8 +47,8 @@ export default function DepositPage() {
   const depositHook = useDeposit();
   const withdrawHook = useWithdraw();
 
-  const hellyBalance = hellyBalanceRaw
-    ? Number(hellyBalanceRaw) / 10 ** USDC_DECIMALS
+  const custodyBalance = custodyBalanceRaw
+    ? Number(custodyBalanceRaw) / 10 ** USDC_DECIMALS
     : 0;
   const usdcBalance = usdcBalanceRaw
     ? Number(usdcBalanceRaw) / 10 ** USDC_DECIMALS
@@ -96,7 +95,7 @@ export default function DepositPage() {
     if (depositAmountNum <= 0) return;
     await depositHook.deposit(depositAmountBig);
     setTimeout(() => {
-      refetchHelly();
+      refetchCustody();
       refetchUsdc();
       setDepositAmount("");
     }, 3000);
@@ -106,7 +105,7 @@ export default function DepositPage() {
     if (withdrawAmountNum <= 0) return;
     await withdrawHook.withdraw(withdrawAmountBig);
     setTimeout(() => {
-      refetchHelly();
+      refetchCustody();
       refetchUsdc();
       setWithdrawAmount("");
     }, 3000);
@@ -143,7 +142,7 @@ export default function DepositPage() {
             deposit funds
           </h1>
           <p className="text-muted-foreground lowercase">
-            deposit usdc to hellyhook contract to start betting
+            deposit usdc to custody (state channel) to start betting
           </p>
         </div>
 
@@ -167,12 +166,12 @@ export default function DepositPage() {
               <Card className="border-2 border-border">
                 <CardHeader className="pb-2">
                   <CardTitle className="lowercase font-black text-sm">
-                    hellyhook balance
+                    custody balance
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-black text-[#BFFF00]">
-                    {formatCurrency(hellyBalance)}
+                    {formatCurrency(custodyBalance)}
                   </div>
                 </CardContent>
               </Card>
@@ -186,7 +185,7 @@ export default function DepositPage() {
                     testnet: mint 1,000 usdc
                   </p>
                   <p className="text-xs text-muted-foreground lowercase">
-                    base sepolia test tokens
+                    unichain sepolia test tokens
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -216,7 +215,7 @@ export default function DepositPage() {
               <CardHeader>
                 <CardTitle className="lowercase font-black">deposit</CardTitle>
                 <CardDescription className="lowercase">
-                  deposit usdc from wallet to hellyhook
+                  deposit usdc from wallet to custody
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -257,7 +256,7 @@ export default function DepositPage() {
                       disabled={isTxPending || depositAmountNum <= 0}
                       className="flex-1 bg-transparent border-2 border-[#BFFF00] text-[#BFFF00] hover:bg-[#BFFF00] hover:text-black font-black lowercase"
                     >
-                      1. approve
+                      1. approve custody
                     </Button>
                   )}
                   <Button
@@ -281,7 +280,7 @@ export default function DepositPage() {
               <CardHeader>
                 <CardTitle className="lowercase font-black">withdraw</CardTitle>
                 <CardDescription className="lowercase">
-                  withdraw usdc from hellyhook to wallet
+                  withdraw usdc from custody to wallet
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -314,7 +313,7 @@ export default function DepositPage() {
                   disabled={
                     isTxPending ||
                     withdrawAmountNum <= 0 ||
-                    withdrawAmountNum > hellyBalance
+                    withdrawAmountNum > custodyBalance
                   }
                   variant="outline"
                   className="w-full font-black lowercase border-2"
@@ -341,7 +340,7 @@ export default function DepositPage() {
                   <div className="flex-1 pt-1">
                     <h3 className="font-bold mb-1 lowercase">mint test usdc</h3>
                     <p className="text-sm text-muted-foreground lowercase">
-                      get test tokens on base sepolia
+                      get test tokens on unichain sepolia
                     </p>
                   </div>
                 </div>
@@ -355,7 +354,7 @@ export default function DepositPage() {
                   <div className="flex-1 pt-1">
                     <h3 className="font-bold mb-1 lowercase">approve + deposit</h3>
                     <p className="text-sm text-muted-foreground lowercase">
-                      approve hellyhook to spend your usdc, then deposit
+                      approve custody to spend your usdc, then deposit
                     </p>
                   </div>
                 </div>
@@ -369,7 +368,7 @@ export default function DepositPage() {
                   <div className="flex-1 pt-1">
                     <h3 className="font-bold mb-1 lowercase">start betting</h3>
                     <p className="text-sm text-muted-foreground lowercase">
-                      your hellyhook balance is used for all bets
+                      your custody balance is used for all bets via state channels
                     </p>
                   </div>
                 </div>
@@ -377,11 +376,11 @@ export default function DepositPage() {
                 <div className="pt-4 border-t border-border">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground lowercase">
                     <span className="text-[#BFFF00]">*</span>
-                    <span>base sepolia testnet</span>
+                    <span>unichain sepolia testnet</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground lowercase mt-2">
                     <span className="text-[#BFFF00]">*</span>
-                    <span>withdraw anytime from hellyhook</span>
+                    <span>withdraw anytime from custody</span>
                   </div>
                 </div>
               </CardContent>

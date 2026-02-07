@@ -1,10 +1,15 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { type Abi } from "viem";
 import { useClearnode } from "@/providers/clearnode-provider";
 import type { ChannelInfo, AppSessionInfo } from "@/lib/clearnode-client";
 import { CLEARNODE_CONTRACTS } from "@/config/constants";
+import { CUSTODY_ABI, ERC20_ABI } from "@/config/abis";
+import { CONTRACTS } from "@/config/constants";
 import { usePrivyAccount } from "@/hooks/use-privy-account";
+import { useWalletClient } from "@/hooks/use-wallet-client";
+import { publicClient } from "@/config/viem";
 
 const CHANNEL_STORAGE_KEY = "wthelly_channel_id";
 const APP_SESSION_STORAGE_KEY = "wthelly_app_sessions";
@@ -39,6 +44,7 @@ function saveAppSession(marketId: string, sessionId: string) {
 export function useStateChannel() {
   const { client, isAuthenticated, sessionSigner } = useClearnode();
   const { address } = usePrivyAccount();
+  const { getWalletClient } = useWalletClient();
   const [channelId, setChannelId] = useState<string | null>(loadChannelId);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -156,13 +162,46 @@ export function useStateChannel() {
     []
   );
 
+  // Deposit: approve USDC to Custody → deposit on-chain → create channel via Clearnode
   const deposit = useCallback(
     async (amount: string) => {
       if (!isReady || !address) throw new Error("Clearnode not ready");
       setIsLoading(true);
       try {
+        const amountBig = BigInt(amount);
+        const walletClient = await getWalletClient();
+
+        // Step 1: Approve USDC to Custody (if needed)
+        const allowance = await publicClient.readContract({
+          address: CONTRACTS.usdc,
+          abi: ERC20_ABI as Abi,
+          functionName: "allowance",
+          args: [address, CLEARNODE_CONTRACTS.custody],
+        }) as bigint;
+
+        if (allowance < amountBig) {
+          const maxApproval = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+          const approveHash = await walletClient.writeContract({
+            address: CONTRACTS.usdc,
+            abi: ERC20_ABI as Abi,
+            functionName: "approve",
+            args: [CLEARNODE_CONTRACTS.custody, maxApproval],
+          } as any);
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        }
+
+        // Step 2: Deposit to Custody on-chain
+        const depositHash = await walletClient.writeContract({
+          address: CLEARNODE_CONTRACTS.custody,
+          abi: CUSTODY_ABI as Abi,
+          functionName: "deposit",
+          args: [address, CLEARNODE_CONTRACTS.usdc, amountBig],
+        } as any);
+        await publicClient.waitForTransactionReceipt({ hash: depositHash });
+
+        // Step 3: Create channel via Clearnode RPC
         const result = await client!.createChannel(sessionSigner!, {
-          chainId: 1301, // Unichain Sepolia
+          chainId: 1301,
           participant: address,
           token: CLEARNODE_CONTRACTS.usdc,
           amount,
@@ -174,39 +213,66 @@ export function useStateChannel() {
         setIsLoading(false);
       }
     },
-    [client, sessionSigner, address, isReady]
+    [client, sessionSigner, address, isReady, getWalletClient]
   );
 
+  // Withdraw: close channel via Clearnode → withdraw from Custody on-chain
   const withdraw = useCallback(
     async () => {
       if (!isReady || !channelId) throw new Error("No channel to close");
       setIsLoading(true);
       try {
+        // Step 1: Close channel via Clearnode RPC
         await client!.closeChannel(sessionSigner!, { channelId });
+
+        // Step 2: Withdraw from Custody on-chain
+        const walletClient = await getWalletClient();
+
+        // Get Custody balance to withdraw
+        const balances = await publicClient.readContract({
+          address: CLEARNODE_CONTRACTS.custody,
+          abi: CUSTODY_ABI as Abi,
+          functionName: "getAccountsBalances",
+          args: [[address!], [CLEARNODE_CONTRACTS.usdc]],
+        }) as bigint[][];
+
+        const custodyBalance = balances[0]?.[0] ?? 0n;
+        if (custodyBalance > 0n) {
+          const withdrawHash = await walletClient.writeContract({
+            address: CLEARNODE_CONTRACTS.custody,
+            abi: CUSTODY_ABI as Abi,
+            functionName: "withdraw",
+            args: [CLEARNODE_CONTRACTS.usdc, custodyBalance],
+          } as any);
+          await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
+        }
+
         setChannelId(null);
         localStorage.removeItem(CHANNEL_STORAGE_KEY);
       } finally {
         setIsLoading(false);
       }
     },
-    [client, sessionSigner, channelId, isReady]
+    [client, sessionSigner, channelId, address, isReady, getWalletClient]
   );
 
+  // Get balance from Custody contract (on-chain)
   const getBalance = useCallback(
     async () => {
-      if (!isReady) return "0";
+      if (!address) return "0";
       try {
-        const balances = await client!.getLedgerBalances(sessionSigner!);
-        // balances is Record<string, string> — lookup by USDC address (case-insensitive)
-        const usdcKey = Object.keys(balances).find(
-          (key) => key.toLowerCase() === CLEARNODE_CONTRACTS.usdc.toLowerCase()
-        );
-        return usdcKey ? balances[usdcKey] : "0";
+        const balances = await publicClient.readContract({
+          address: CLEARNODE_CONTRACTS.custody,
+          abi: CUSTODY_ABI as Abi,
+          functionName: "getAccountsBalances",
+          args: [[address], [CLEARNODE_CONTRACTS.usdc]],
+        }) as bigint[][];
+        return (balances[0]?.[0] ?? 0n).toString();
       } catch {
         return "0";
       }
     },
-    [client, sessionSigner, isReady]
+    [address]
   );
 
   return {

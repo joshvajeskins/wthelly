@@ -109,11 +109,16 @@ export function ClearnodeProvider({ children }: { children: ReactNode }) {
 
       if (authenticated) {
         setIsAuthenticated(true);
-        // Create session signer for subsequent RPC calls
-        const sessionKey = generatePrivateKey();
+        // Persist session key in localStorage across reconnects
+        const SESSION_KEY_STORAGE = "wthelly_session_key";
+        let sessionKey = localStorage.getItem(SESSION_KEY_STORAGE) as Hex | null;
+        if (!sessionKey) {
+          sessionKey = generatePrivateKey();
+          localStorage.setItem(SESSION_KEY_STORAGE, sessionKey);
+        }
         const signer = createECDSAMessageSigner(sessionKey);
         setSessionSigner(() => signer);
-        console.log("[Clearnode] Fully authenticated with session key");
+        console.log("[Clearnode] Fully authenticated with persistent session key");
 
         // Auto-detect existing channels
         try {

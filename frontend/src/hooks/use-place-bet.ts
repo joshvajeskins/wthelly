@@ -5,7 +5,7 @@ import { usePrivyAccount } from "@/hooks/use-privy-account";
 import { useTee } from "@/providers/tee-provider";
 import { useClearnode } from "@/providers/clearnode-provider";
 import { useStateChannel } from "@/hooks/use-state-channel";
-import { CLEARNODE_CONTRACTS, TEE_ADDRESS } from "@/config/constants";
+import { CLEARNODE_CONTRACTS, CLEARNODE_ASSET_SYMBOL, TEE_ADDRESS } from "@/config/constants";
 import { encryptBetData as eciesEncrypt } from "@/lib/ecies-browser";
 
 const STORAGE_KEY = "wthelly_secrets";
@@ -82,7 +82,7 @@ export function usePlaceBet() {
         [
           {
             participant: address,
-            asset: CLEARNODE_CONTRACTS.usdc,
+            asset: CLEARNODE_ASSET_SYMBOL,
             amount: amount.toString(),
           },
         ]
