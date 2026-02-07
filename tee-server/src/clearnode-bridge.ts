@@ -24,6 +24,8 @@ export class ClearnodeBridge {
   private _isAuthenticated = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = true;
+  private reconnectAttempts = 0;
+  private readonly maxReconnectAttempts = 10;
   private signer: MessageSigner | null = null;
   private teeAddress: `0x${string}` | null = null;
 
@@ -49,6 +51,7 @@ export class ClearnodeBridge {
         try {
           await this.authenticate();
           this._isAuthenticated = true;
+          this.reconnectAttempts = 0; // Reset on successful connection
           console.log('[ClearnodeBridge] Authenticated successfully');
           resolve();
         } catch (error) {
@@ -274,7 +277,13 @@ export class ClearnodeBridge {
     if (!this.shouldReconnect) return;
     if (this.reconnectTimer) return;
 
-    console.log('[ClearnodeBridge] Scheduling reconnect in 5s...');
+    this.reconnectAttempts++;
+    if (this.reconnectAttempts > this.maxReconnectAttempts) {
+      console.error(`[ClearnodeBridge] Max reconnect attempts (${this.maxReconnectAttempts}) reached — giving up`);
+      return;
+    }
+
+    console.log(`[ClearnodeBridge] Scheduling reconnect in 5s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       try {
