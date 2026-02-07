@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { usePrivyAccount } from "@/hooks/use-privy-account";
-import { useHellyBalance, useUsdcBalance } from "./use-contract-reads";
+import { useCustodyBalance, useUsdcBalance } from "./use-contract-reads";
 import { useBets } from "./use-bets";
 import { useOnChainMarkets } from "./use-market-events";
 import { useClearnode } from "@/providers/clearnode-provider";
@@ -12,12 +12,12 @@ import type { User, ChannelState } from "@/types";
 
 export function useUser() {
   const { address, isConnected } = usePrivyAccount();
-  const { data: hellyBalanceRaw } = useHellyBalance(address);
+  const { data: custodyBalanceRaw } = useCustodyBalance(address);
   const { activeBets, betHistory, allBets, isLoading: betsLoading } = useBets();
   const { markets: onChainMarkets } = useOnChainMarkets();
 
-  const hellyBalance = hellyBalanceRaw
-    ? Number(hellyBalanceRaw) / 10 ** USDC_DECIMALS
+  const custodyBalance = custodyBalanceRaw
+    ? Number(custodyBalanceRaw) / 10 ** USDC_DECIMALS
     : 0;
 
   const stats = useMemo(() => {
@@ -55,7 +55,7 @@ export function useUser() {
           winRate: stats.winRate,
           totalWagered: stats.totalWagered,
           streak: 0,
-          channelBalance: hellyBalance,
+          channelBalance: custodyBalance,
           channelNonce: 0,
           createdAt: new Date(),
         }
@@ -70,11 +70,11 @@ export function useUser() {
 
 export function useChannelState() {
   const { address } = usePrivyAccount();
-  const { data: hellyBalanceRaw, isLoading } = useHellyBalance(address);
+  const { data: custodyBalanceRaw, isLoading } = useCustodyBalance(address);
   const { isAuthenticated } = useClearnode();
 
-  const balance = hellyBalanceRaw
-    ? Number(hellyBalanceRaw) / 10 ** USDC_DECIMALS
+  const balance = custodyBalanceRaw
+    ? Number(custodyBalanceRaw) / 10 ** USDC_DECIMALS
     : 0;
 
   const channelState: ChannelState = {

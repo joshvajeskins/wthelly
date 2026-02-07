@@ -15,7 +15,7 @@ import { Lock } from "lucide-react";
 import type { Market, Bet } from "@/types";
 import { getResolutionTypeLabel } from "@/types";
 import { usePlaceBet } from "@/hooks/use-place-bet";
-import { useHellyBalance } from "@/hooks/use-contract-reads";
+import { useCustodyBalance } from "@/hooks/use-contract-reads";
 import { USDC_DECIMALS } from "@/config/constants";
 
 interface MarketDetailContentProps {
@@ -33,10 +33,10 @@ export function MarketDetailContent({
   const [amount, setAmount] = useState<string>("");
   const { address, isConnected } = usePrivyAccount();
   const { placeBet, isPlacing } = usePlaceBet();
-  const { data: hellyBalanceRaw } = useHellyBalance(address);
+  const { data: custodyBalanceRaw } = useCustodyBalance(address);
 
-  const hellyBalance = hellyBalanceRaw
-    ? Number(hellyBalanceRaw) / 10 ** USDC_DECIMALS
+  const custodyBalance = custodyBalanceRaw
+    ? Number(custodyBalanceRaw) / 10 ** USDC_DECIMALS
     : 0;
 
   const numericAmount = parseFloat(amount) || 0;
@@ -44,8 +44,8 @@ export function MarketDetailContent({
   const handlePlaceBet = async () => {
     if (!selectedOption || numericAmount <= 0 || !isConnected) return;
 
-    if (numericAmount > hellyBalance) {
-      toast.error("insufficient hellyhook balance. deposit more usdc first.");
+    if (numericAmount > custodyBalance) {
+      toast.error("insufficient custody balance. deposit more usdc first.");
       return;
     }
 
@@ -150,7 +150,7 @@ export function MarketDetailContent({
               <CardTitle className="lowercase font-black">place your bet</CardTitle>
               {isConnected && (
                 <p className="text-xs text-muted-foreground lowercase">
-                  hellyhook balance: {formatCurrency(hellyBalance)}
+                  custody balance: {formatCurrency(custodyBalance)}
                 </p>
               )}
             </CardHeader>
