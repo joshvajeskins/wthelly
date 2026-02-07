@@ -233,6 +233,18 @@ export class ClearnodeClient {
   }
 
   /**
+   * Close (withdraw from) a state channel.
+   */
+  async closeChannel(
+    signer: MessageSigner,
+    params: { channelId: string }
+  ): Promise<{ success: boolean }> {
+    return this.callRpc(signer, "close_channel", {
+      channel_id: params.channelId,
+    });
+  }
+
+  /**
    * Create an app session for a prediction market bet.
    */
   async createAppSession(

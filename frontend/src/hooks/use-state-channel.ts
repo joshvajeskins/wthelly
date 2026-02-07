@@ -197,11 +197,11 @@ export function useStateChannel() {
       if (!isReady) return "0";
       try {
         const balances = await client!.getLedgerBalances(sessionSigner!);
-        const usdcBalance = balances.find(
-          (b: any) =>
-            b.asset?.toLowerCase() === CLEARNODE_CONTRACTS.usdc.toLowerCase()
+        // balances is Record<string, string> — lookup by USDC address (case-insensitive)
+        const usdcKey = Object.keys(balances).find(
+          (key) => key.toLowerCase() === CLEARNODE_CONTRACTS.usdc.toLowerCase()
         );
-        return usdcBalance?.amount || "0";
+        return usdcKey ? balances[usdcKey] : "0";
       } catch {
         return "0";
       }

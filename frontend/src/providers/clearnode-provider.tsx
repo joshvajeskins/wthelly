@@ -122,12 +122,12 @@ export function ClearnodeProvider({ children }: { children: ReactNode }) {
             setHasChannel(true);
             // Get balance from first channel
             const balances = await newClient.getLedgerBalances(signer);
-            const usdcBal = balances.find(
-              (b: any) =>
-                b.asset?.toLowerCase() ===
+            const usdcKey = Object.keys(balances).find(
+              (key) =>
+                key.toLowerCase() ===
                 CLEARNODE_CONTRACTS.usdc.toLowerCase()
             );
-            setChannelBalance(usdcBal?.amount || "0");
+            setChannelBalance(usdcKey ? balances[usdcKey] : "0");
           }
         } catch (err) {
           console.warn("[Clearnode] Failed to fetch channels:", err);

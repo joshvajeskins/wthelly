@@ -6,6 +6,7 @@ import { useTee } from "@/providers/tee-provider";
 import { useClearnode } from "@/providers/clearnode-provider";
 import { useStateChannel } from "@/hooks/use-state-channel";
 import { CLEARNODE_CONTRACTS, TEE_ADDRESS } from "@/config/constants";
+import { encryptBetData as eciesEncrypt } from "@/lib/ecies-browser";
 
 const STORAGE_KEY = "wthelly_secrets";
 
@@ -97,7 +98,14 @@ export function usePlaceBet() {
       let encryptedBet: string | undefined;
       if (teeConnected) {
         try {
-          encryptedBet = await teeClient.encryptBetData(betPayload);
+          const pubKey = await teeClient.getPubKey();
+          encryptedBet = eciesEncrypt(pubKey, {
+            marketId,
+            isYes,
+            amount: amount.toString(),
+            secret: "0x",
+            address,
+          });
         } catch (err) {
           console.warn("[TEE] Encryption failed, submitting unencrypted:", err);
         }
