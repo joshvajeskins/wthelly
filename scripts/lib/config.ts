@@ -54,13 +54,12 @@ export function getCustodyDeployment(): CustodyDeploymentInfo {
   return JSON.parse(readFileSync(CUSTODY_DEPLOYMENT_FILE, "utf-8"));
 }
 
-// --- Fallback: Yellow Network / Clearnode contracts ---
-export const YELLOW_CONTRACTS = {
-  Custody: "0x8658501c98C3738026c4e5c361c6C3fa95DfB255" as Address,
-  Adjudicator: "0xcbbc03a873c11beeFA8D99477E830be48d8Ae6D7" as Address,
-  USDC: "0xbD24c53072b9693A35642412227043Ffa5fac382" as Address,
-  WETH: "0xAf119209932D7EDe63055E60854E81acC4063a12" as Address,
-  BalanceChecker: "0x730dB3A1D3Ca47e7BaEb260c24C74ED4378726Bc" as Address,
+// --- ERC-7824 Contracts (deployed on Unichain Sepolia) ---
+export const CUSTODY_CONTRACTS = {
+  Custody: "0xbc971a5be98ee37bdb82ca3e79f8e592dfcf0865" as Address,
+  Adjudicator: "0xc3a95ef6a26d309e4fa40f211d0892571a92096f" as Address,
+  BalanceChecker: "0x87da1de8bedc98bfe27eddf3dcfca8bebc2425b3" as Address,
+  USDC: "0xd8f50a509efe389574dd378b0ef03e33558222ea" as Address,
 } as const;
 
 // --- Environment Helpers ---

@@ -97,21 +97,9 @@ async function main() {
   console.log(`  BalanceChecker: ${balanceChecker.address}`);
   console.log(`  TX: ${getExplorerTxUrl(balanceChecker.hash)}`);
 
-  // Fund broker wallet if BROKER_PRIVATE_KEY is set
-  const brokerKey = process.env.BROKER_PRIVATE_KEY as Hex | undefined;
-  let brokerAddress: Address | undefined;
-  if (brokerKey) {
-    const brokerAccount = privateKeyToAccount(brokerKey);
-    brokerAddress = brokerAccount.address;
-    console.log(`\n  Funding broker wallet: ${brokerAddress}`);
-    const brokerBalance = await publicClient.getBalance({ address: brokerAddress });
-    if (brokerBalance < parseEther("0.01")) {
-      const hash = await fundWithEth(ADMIN_KEY, brokerAddress, "0.02");
-      console.log(`  Funded broker with 0.02 ETH: ${getExplorerTxUrl(hash)}`);
-    } else {
-      console.log(`  Broker already has ${formatEther(brokerBalance)} ETH`);
-    }
-  }
+  // Broker uses same key as admin (EVM_PRIVATE_KEY)
+  const brokerAddress = ADMIN_ADDRESS;
+  console.log(`\n  Broker wallet (same as admin): ${brokerAddress}`);
 
   // Save deployment
   const deployment = {

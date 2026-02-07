@@ -85,8 +85,8 @@ export const TEE_SERVER_URL = process.env.NEXT_PUBLIC_TEE_SERVER_URL || "http://
 
 // Clearnode / ERC-7824 contract addresses (deployed on Unichain Sepolia)
 export const CLEARNODE_CONTRACTS = {
-  custody: (process.env.NEXT_PUBLIC_CUSTODY_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`,
-  adjudicator: (process.env.NEXT_PUBLIC_ADJUDICATOR_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`,
+  custody: "0xbc971a5be98ee37bdb82ca3e79f8e592dfcf0865" as `0x${string}`,
+  adjudicator: "0xc3a95ef6a26d309e4fa40f211d0892571a92096f" as `0x${string}`,
   usdc: "0xd8f50a509efe389574dd378b0ef03e33558222ea" as `0x${string}`,
 } as const;
 

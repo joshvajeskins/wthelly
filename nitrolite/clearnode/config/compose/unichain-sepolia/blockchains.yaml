@@ -2,5 +2,5 @@ blockchains:
 - name: unichain_sepolia
   id: 1301
   contract_addresses:
-    custody: "DEPLOY_AND_UPDATE_ME"
-    adjudicator: "DEPLOY_AND_UPDATE_ME"
+    custody: "0xbc971a5be98ee37bdb82ca3e79f8e592dfcf0865"
+    adjudicator: "0xc3a95ef6a26d309e4fa40f211d0892571a92096f"
