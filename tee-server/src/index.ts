@@ -2,9 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config.js';
 import { TeeAttestationService } from './tee-attestation.js';
-import { decryptBetData } from './ecies.js';
-import { BetStore, DecryptedBet } from './bet-store.js';
+import { BetStore } from './bet-store.js';
 import { computeSettlement } from './settlement.js';
+import { ClearnodeBridge } from './clearnode-bridge.js';
+import { AppSessionHandler } from './app-session-handler.js';
 
 const app = express();
 app.use(cors());
@@ -53,65 +54,6 @@ app.get('/pubkey', (_req, res) => {
 });
 
 // ============================================
-// Submit Encrypted Bet
-// ============================================
-
-app.post('/bet', (req, res) => {
-  try {
-    const { marketId, encryptedData } = req.body;
-
-    if (!marketId || !encryptedData) {
-      res.status(400).json({ error: 'Missing marketId or encryptedData' });
-      return;
-    }
-
-    teeService.incrementMetric('betsReceived');
-
-    // Decrypt bet data using TEE's private key
-    let betData;
-    try {
-      betData = decryptBetData(teeService.getPrivateKey(), encryptedData);
-      teeService.incrementMetric('betsDecrypted');
-    } catch (error) {
-      teeService.incrementMetric('betsFailed');
-      console.error('[TEE] Decryption failed:', error);
-      res.status(400).json({ error: 'Failed to decrypt bet data' });
-      return;
-    }
-
-    // Validate
-    if (betData.marketId !== marketId) {
-      res.status(400).json({ error: 'Market ID mismatch' });
-      return;
-    }
-
-    // Store decrypted bet
-    const bet: DecryptedBet = {
-      marketId: betData.marketId,
-      isYes: betData.isYes,
-      amount: BigInt(betData.amount),
-      secret: betData.secret,
-      address: betData.address,
-      commitHash: '', // Will be matched on-chain
-      timestamp: Date.now(),
-    };
-
-    betStore.addBet(bet);
-
-    console.log(`[TEE] Bet received: market=${marketId.slice(0, 10)}... address=${betData.address.slice(0, 10)}... direction=${betData.isYes ? 'YES' : 'NO'}`);
-
-    res.json({
-      success: true,
-      marketId,
-      betCount: betStore.getBetCount(marketId),
-    });
-  } catch (error) {
-    console.error('[TEE] /bet error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ============================================
 // Trigger Settlement + ZK Proof
 // ============================================
 
@@ -133,7 +75,15 @@ app.post('/settle/:marketId', async (req, res) => {
 
     console.log(`[TEE] Settling market ${marketId.slice(0, 10)}... outcome=${outcome ? 'YES' : 'NO'}`);
 
-    const result = await computeSettlement(marketId, outcome, betStore);
+    let result;
+
+    // Settle via state channel if requested and bridge is available
+    if (req.query.channel === 'true' && bridge?.isAuthenticated) {
+      const { settleViaStateChannel } = await import('./settlement.js');
+      result = await settleViaStateChannel(marketId, outcome, betStore, bridge);
+    } else {
+      result = await computeSettlement(marketId, outcome, betStore);
+    }
 
     teeService.incrementMetric('settlementsExecuted');
     if (result.proof) {
@@ -209,12 +159,37 @@ function serializeSettlement(s: any) {
 // Start Server
 // ============================================
 
-app.listen(config.port, () => {
+// Initialize Clearnode bridge
+let bridge: ClearnodeBridge | null = null;
+let sessionHandler: AppSessionHandler | null = null;
+
+async function initClearnodeBridge() {
+  try {
+    bridge = new ClearnodeBridge(config.clearnodeWsUrl, teeService);
+    sessionHandler = new AppSessionHandler(bridge, betStore, teeService, config);
+    bridge.onNotification((notification) => {
+      sessionHandler!.handleNotification(notification).catch(err => {
+        console.error('[Bridge] Notification handler error:', err);
+      });
+    });
+    await bridge.connect();
+    console.log('[Clearnode] Bridge connected and authenticated');
+  } catch (error) {
+    console.warn('[Clearnode] Bridge connection failed (will retry):', error);
+    // Server continues without Clearnode — HTTP endpoints still work
+  }
+}
+
+app.listen(config.port, async () => {
   console.log(`\n[wthelly TEE Server]`);
   console.log(`  Mode:     ${config.teeMode}`);
   console.log(`  Port:     ${config.port}`);
   console.log(`  Chain:    ${config.chainId}`);
   console.log(`  Contract: ${config.hellyHookAddress}`);
   console.log(`  PubKey:   ${teeService.publicKeyHex.slice(0, 20)}...`);
+
+  // Connect to Clearnode in background
+  await initClearnodeBridge();
+
   console.log(`  Ready!\n`);
 });

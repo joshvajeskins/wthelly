@@ -14,9 +14,12 @@ export const config = {
   teeMode: (process.env.TEE_MODE || 'local-dev') as 'local-dev' | 'enclave',
   enclaveKeyPath: process.env.ENCLAVE_KEY_PATH || '/app/ecdsa.sec',
 
-  // EVM chain config
-  rpcUrl: process.env.RPC_URL || 'https://sepolia.base.org',
-  chainId: parseInt(process.env.CHAIN_ID || '84532', 10),
+  // Clearnode WebSocket
+  clearnodeWsUrl: process.env.CLEARNODE_WS_URL || 'ws://localhost:8000/ws',
+
+  // EVM chain config (Unichain Sepolia)
+  rpcUrl: process.env.RPC_URL || 'https://sepolia.unichain.org',
+  chainId: parseInt(process.env.CHAIN_ID || '1301', 10),
   hellyHookAddress: process.env.HELLY_HOOK_ADDRESS || '0x218dc19b1e7dab45149a564839fffd2d6ed9e1ce',
 
   // ZK circuit paths

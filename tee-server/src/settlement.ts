@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { BetStore, DecryptedBet, SettlementResult } from './bet-store.js';
+import type { ClearnodeBridge } from './clearnode-bridge.js';
 
 // Dynamic import for snarkjs (ESM)
 let snarkjs: any;
@@ -159,4 +160,36 @@ async function generateSettlementProof(
     pC: [proof.pi_c[0], proof.pi_c[1]] as [string, string],
     pubSignals: publicSignals as [string, string, string, string],
   };
+}
+
+// ============================================
+// State Channel Settlement
+// ============================================
+
+export async function settleViaStateChannel(
+  marketId: string,
+  outcome: boolean,
+  betStore: BetStore,
+  bridge: ClearnodeBridge
+): Promise<SettlementResult> {
+  // Step 1: Compute payouts (reuse existing logic)
+  const result = await computeSettlement(marketId, outcome, betStore);
+
+  // Step 2: Close app sessions via Clearnode
+  try {
+    await bridge.closeAppSession([{
+      app_session_id: `0x${marketId}` as `0x${string}`,
+      allocations: result.payouts.map(p => ({
+        participant: p.address as `0x${string}`,
+        asset: 'USDC',
+        amount: p.amount.toString(),
+      })),
+    }]);
+    console.log(`[Settlement] App sessions closed for market ${marketId}`);
+  } catch (error) {
+    console.error(`[Settlement] Failed to close app sessions:`, error);
+    // Continue with on-chain settlement even if channel close fails
+  }
+
+  return result;
 }
