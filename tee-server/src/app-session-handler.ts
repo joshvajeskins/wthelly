@@ -53,10 +53,35 @@ export class AppSessionHandler {
     // Decrypt ECIES-encrypted bet data if present
     if (sessionData.encryptedBet) {
       try {
-        this.teeService.incrementMetric('betsReceived');
         const betData = decryptBetData(this.teeService.getPrivateKey(), sessionData.encryptedBet);
 
-        const betAmount = BigInt(betData.amount);
+        // Validate decrypted bet fields before using them
+        if (
+          typeof betData.marketId !== 'string' || betData.marketId.length === 0 ||
+          typeof betData.isYes !== 'boolean' ||
+          typeof betData.address !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(betData.address)
+        ) {
+          console.warn('[AppSession] Rejected bet: invalid bet data fields');
+          this.teeService.incrementMetric('betsFailed');
+          return;
+        }
+
+        let betAmount: bigint;
+        try {
+          betAmount = BigInt(betData.amount);
+          if (betAmount <= 0n) {
+            console.warn('[AppSession] Rejected bet: amount must be positive');
+            this.teeService.incrementMetric('betsFailed');
+            return;
+          }
+        } catch {
+          console.warn(`[AppSession] Rejected bet: unparseable amount "${betData.amount}"`);
+          this.teeService.incrementMetric('betsFailed');
+          return;
+        }
+
+        // Increment after successful decryption + validation
+        this.teeService.incrementMetric('betsReceived');
 
         // --- Validation: check market is open on-chain ---
         if (this.chainClient) {
