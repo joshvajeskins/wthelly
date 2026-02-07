@@ -89,32 +89,28 @@ export function usePlaceBet() {
       );
 
       // Step 2: ECIES-encrypt bet data with TEE public key
-      const betPayload = JSON.stringify({
-        marketId,
-        isYes,
-        amount: amount.toString(),
-        address,
-      });
-      let encryptedBet: string | undefined;
-      if (teeConnected) {
-        try {
-          const pubKey = await teeClient.getPubKey();
-          encryptedBet = eciesEncrypt(pubKey, {
-            marketId,
-            isYes,
-            amount: amount.toString(),
-            secret: "0x",
-            address,
-          });
-        } catch (err) {
-          console.warn("[TEE] Encryption failed, submitting unencrypted:", err);
-        }
+      if (!teeConnected) {
+        throw new Error("TEE server not connected — cannot encrypt bet data");
+      }
+
+      let encryptedBet: string;
+      try {
+        const pubKey = await teeClient.getPubKey();
+        encryptedBet = eciesEncrypt(pubKey, {
+          marketId,
+          isYes,
+          amount: amount.toString(),
+          secret: "0x",
+          address,
+        });
+      } catch (err) {
+        throw new Error(`TEE encryption failed: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       // Step 3: Submit bet as app state
       const stateData = JSON.stringify({
         marketId,
-        encryptedBet: encryptedBet || betPayload,
+        encryptedBet,
         amount: amount.toString(),
         timestamp: Date.now(),
       });
