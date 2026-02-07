@@ -25,7 +25,14 @@ contracts/out/
 
 # Project specific
 scripts/lib/deployment.json
-nitrolite/
+scripts/lib/custody-deployment.json
+
+# Nitrolite build artifacts
+nitrolite/contract/lib/
+nitrolite/contract/cache/
+nitrolite/contract/out/
+nitrolite/contract/broadcast/
+nitrolite/contract/deployments/
 
 # Misc
 .DS_Store
